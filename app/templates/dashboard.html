@@ -100,6 +100,12 @@
       .s-failed, .s-restored { background: rgba(248,81,73,.18); color: var(--apollo-status-failed); }
       .s-duplicate { background: rgba(210,153,34,.18); color: var(--apollo-status-duplicate); }
       .empty { color: var(--apollo-text-muted); padding: var(--apollo-space-4) 0; }
+      .runs .run-row { cursor: pointer; }
+      .runs .run-row:hover { background: var(--apollo-surface-overlay); }
+      .runs .caret { width: 18px; color: var(--apollo-text-muted); }
+      .run-detail > td { padding: 0; }
+      .run-detail table { background: var(--apollo-surface-canvas); }
+      .run-detail th, .run-detail td { padding-left: var(--apollo-space-4); }
     </style>
   </head>
   <body>
@@ -111,12 +117,7 @@
       <div class="cards" id="cards"></div>
 
       <div class="panel" style="margin-top:var(--apollo-space-5)">
-        <h2>Recent healing events</h2>
-        <div id="recent"></div>
-      </div>
-
-      <div class="panel" style="margin-top:var(--apollo-space-4)">
-        <h2>Runs (latest first)</h2>
+        <h2>Runs (latest first) — click a run to reveal its healing events</h2>
         <div id="runs"></div>
       </div>
     </main>
@@ -126,12 +127,11 @@
 
       function card(label, value){ return `<div class="card"><div class="label">${label}</div><div class="value">${value}</div></div>`; }
 
-      function renderRecent(recent){
-        const el = document.getElementById('recent');
-        if(!recent || !recent.length){ el.innerHTML = '<div class="empty">No events yet — run <code>auto-healer run</code></div>'; return; }
-        el.innerHTML = `<table><thead><tr>
+      function eventsTable(events){
+        if(!events || !events.length){ return '<div class="empty">No events</div>'; }
+        return `<table><thead><tr>
             <th>Time</th><th>Test</th><th>Status</th><th>Before</th><th>After</th><th>Conf.</th></tr></thead><tbody>` +
-          recent.map(r => `<tr>
+          events.map(r => `<tr>
               <td>${(r.created_at||'').slice(11,19) || '—'}</td>
               <td>${escapeHtml(r.test_name || '—')}</td>
               <td><span class="pill s-${r.status}">${r.status}</span></td>
@@ -144,16 +144,28 @@
       function renderRuns(runs){
         const el = document.getElementById('runs');
         if(!runs || !runs.length){ el.innerHTML = '<div class="empty">No runs recorded yet</div>'; return; }
-        el.innerHTML = `<table><thead><tr>
-            <th>Run</th><th>When</th><th>Healed</th><th>Failed</th><th>Duplicate</th><th>Total</th></tr></thead><tbody>` +
-          runs.map(r => `<tr>
+        el.innerHTML = `<table class="runs"><thead><tr>
+            <th></th><th>Run</th><th>When</th><th>Healed</th><th>Failed</th><th>Duplicate</th><th>Total</th></tr></thead><tbody>` +
+          runs.map((r, i) => `<tr class="run-row" onclick="toggleRun(${i})">
+              <td class="caret"><span id="caret-${i}">▸</span></td>
               <td><code>${escapeHtml(r.run_id || '—')}</code></td>
               <td>${(r.created_at||'').slice(0,19).replace('T',' ') || '—'}</td>
               <td><span class="pill s-healed">${r.healed||0}</span></td>
               <td>${r.failed ? `<span class="pill s-failed">${r.failed}</span>` : '0'}</td>
               <td>${r.duplicate ? `<span class="pill s-duplicate">${r.duplicate}</span>` : '0'}</td>
               <td>${r.total||0}</td>
-            </tr>`).join('') + `</tbody></table>`;
+            </tr>
+            <tr class="run-detail" id="detail-${i}" hidden><td colspan="7">${eventsTable(r.events)}</td></tr>`).join('') +
+          `</tbody></table>`;
+      }
+
+      function toggleRun(i){
+        const detail = document.getElementById('detail-'+i);
+        const caret = document.getElementById('caret-'+i);
+        if(!detail) return;
+        const open = detail.hasAttribute('hidden');
+        if(open){ detail.removeAttribute('hidden'); caret.textContent = '▾'; }
+        else { detail.setAttribute('hidden',''); caret.textContent = '▸'; }
       }
 
       function escapeHtml(s){ return (s||'').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
@@ -165,7 +177,6 @@
           card('Failed', m.failed||0) +
           card('Avg confidence', Math.round((m.avg_confidence||0)*100)+'%') +
           card('Runs', m.total_runs||0);
-        renderRecent(m.recent);
         renderRuns(m.runs);
       }
 

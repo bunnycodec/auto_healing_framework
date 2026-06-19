@@ -49,7 +49,14 @@ def compute_metrics(reports_dir: Path) -> dict[str, Any]:
     file_counts: Counter[str] = Counter()
     timeline: dict[str, Counter[str]] = defaultdict(Counter)
     runs: dict[str, dict[str, Any]] = defaultdict(
-        lambda: {"healed": 0, "failed": 0, "duplicate": 0, "total": 0, "created_at": ""}
+        lambda: {
+            "healed": 0,
+            "failed": 0,
+            "duplicate": 0,
+            "total": 0,
+            "created_at": "",
+            "events": [],
+        }
     )
 
     for report in reports:
@@ -84,6 +91,7 @@ def compute_metrics(reports_dir: Path) -> dict[str, Any]:
         created = str(report.get("created_at", ""))
         if created > run["created_at"]:
             run["created_at"] = created
+        run["events"].append(_summarize(report))
 
     healed = status_counts.get("healed", 0)
     failed = status_counts.get("failed", 0) + status_counts.get("restored", 0)
