@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import asdict
+from datetime import datetime
 from pathlib import Path
 
 from ai import AIEngine, create_ai_engine
@@ -14,6 +15,11 @@ from .git_pr import GitPrManager
 from .models import CodePatch, FailureCategory, HealingReport
 from .modifier import TestFileModifier
 from .rerunner import TestRerunner
+
+
+def _new_run_id() -> str:
+    """A unique id for one healing run, used to keep reports per run."""
+    return datetime.now().strftime("%Y%m%d-%H%M%S-%f")
 
 
 class HealingEngine:
@@ -30,6 +36,7 @@ class HealingEngine:
         self.dry_run = dry_run
         self.auto_commit = auto_commit
         self.auto_pr = auto_pr
+        self.run_id = _new_run_id()
         ai_engine = ai_engine or create_ai_engine()
         self.detector = FailureDetector()
         self.analyser = FailureAnalyser(ai_engine)
@@ -173,8 +180,13 @@ class HealingEngine:
         return sorted(trace_dir.rglob("trace.zip"))
 
     def _save_report(self, report: HealingReport) -> HealingReport:
-        self.settings.reports_dir.mkdir(parents=True, exist_ok=True)
+        # Focus on healed/failed outcomes — skipped (non-locator / passing)
+        # traces are noise and are intentionally not persisted.
+        if report.status == "skipped":
+            return report
+        run_dir = self.settings.reports_dir / self.run_id
+        run_dir.mkdir(parents=True, exist_ok=True)
         stem = Path(report.trace_zip).parent.name or Path(report.trace_zip).stem
-        report_path = self.settings.reports_dir / f"{stem}.json"
+        report_path = run_dir / f"{stem}.json"
         report_path.write_text(json.dumps(asdict(report), indent=2, default=str), encoding="utf-8")
         return report

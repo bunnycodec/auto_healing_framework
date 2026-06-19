@@ -20,7 +20,10 @@ def test_heal_single_trace_rule_mode(tmp_path: Path) -> None:
     assert report.suggestion.old_locator == "getByRole('button', { name: /Start new/i })"
     page_object = settings.playwright_project_root / "tests" / "landing.page.ts"
     assert "/Start now/i" in page_object.read_text(encoding="utf-8")
-    assert list(settings.reports_dir.glob("*.json"))
+    # Reports are kept per run, in a run-id subfolder.
+    saved = list(settings.reports_dir.rglob("*.json"))
+    assert saved
+    assert saved[0].parent.parent == settings.reports_dir
 
 
 def test_heal_directory_deduplicates(tmp_path: Path) -> None:
@@ -50,3 +53,5 @@ def test_dry_run_does_not_modify(tmp_path: Path) -> None:
     assert report.patch is not None
     page_object = settings.playwright_project_root / "tests" / "landing.page.ts"
     assert "/Start new/i" in page_object.read_text(encoding="utf-8")
+    # Skipped reports are not persisted.
+    assert not list(settings.reports_dir.rglob("*.json"))

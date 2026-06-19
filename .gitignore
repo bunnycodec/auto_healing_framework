@@ -12,5 +12,7 @@ build/
 *.zip
 trace-output/
 reports/*.json
+reports/**/
+!reports/.gitkeep
 *.backup_*
 .DS_Store
