@@ -184,6 +184,23 @@ docker run --rm -v ${PWD}:/work -w /work --env-file .env \
 The container's entrypoint runs the dashboard by default (`serve`); any other argument
 is passed to the `auto-healer` CLI (`init`, `run`, `heal`).
 
+## CI integration (nightly jobs)
+
+Trigger auto-healing whenever a scheduled test run fails — same 3-step pattern in any
+CI system: **run tests (traces on) → on failure, heal → open a PR**.
+
+```yaml
+- run: npx playwright test --trace on        # allow it to fail
+  continue-on-error: true
+- run: pip install git+https://github.com/bunnycodec/auto_healing_framework.git
+  if: failure()
+- run: auto-healer heal test-results --auto-pr
+  if: failure()
+```
+
+Ready-to-use templates for **GitHub Actions**, **Azure DevOps**, and **Jenkins** are in
+[ci/](ci/) — see [ci/README.md](ci/README.md).
+
 ## Validation
 
 ```powershell
