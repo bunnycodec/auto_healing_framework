@@ -11,7 +11,8 @@
          roles. Components only ever consume semantic tokens.
          ────────────────────────────────────────────────────────────────── */
       :root {
-        /* Primitive — color */
+        color-scheme: light dark;
+        /* Primitive — color (dark) */
         --apollo-color-ink-900: #0b0e14;
         --apollo-color-ink-800: #141925;
         --apollo-color-ink-700: #1b2230;
@@ -23,6 +24,19 @@
         --apollo-color-emerald-400: #3fb950;
         --apollo-color-rose-400: #f85149;
         --apollo-color-amber-400: #d29922;
+
+        /* Primitive — color (light) */
+        --apollo-color-paper-50: #ffffff;
+        --apollo-color-paper-100: #f5f7fa;
+        --apollo-color-paper-200: #eaeef3;
+        --apollo-color-paper-300: #d4dbe4;
+        --apollo-color-slate-900: #1b2230;
+        --apollo-color-slate-500: #5b6573;
+        --apollo-color-azure-600: #0a7ea4;
+        --apollo-color-emerald-600: #1a7f37;
+        --apollo-color-rose-600: #cf222e;
+        --apollo-color-amber-600: #9a6700;
+        --apollo-color-violet-600: #8250df;
 
         /* Primitive — spacing scale (4px base) */
         --apollo-space-1: 4px;  --apollo-space-2: 8px;  --apollo-space-3: 12px;
@@ -44,7 +58,7 @@
         --apollo-elevation-1: 0 1px 2px rgba(0,0,0,.4);
         --apollo-elevation-2: 0 6px 22px rgba(0,0,0,.35);
 
-        /* Semantic — surfaces, text, borders */
+        /* Semantic — surfaces, text, borders (default: dark) */
         --apollo-surface-canvas: var(--apollo-color-ink-900);
         --apollo-surface-raised: var(--apollo-color-ink-800);
         --apollo-surface-overlay: var(--apollo-color-ink-700);
@@ -53,11 +67,30 @@
         --apollo-text-muted: var(--apollo-color-cloud-400);
         --apollo-accent: var(--apollo-color-azure-400);
 
-        /* Semantic — status */
+        /* Semantic — status (default: dark) */
         --apollo-status-healed: var(--apollo-color-emerald-400);
         --apollo-status-failed: var(--apollo-color-rose-400);
         --apollo-status-duplicate: var(--apollo-color-amber-400);
         --apollo-status-pr: var(--apollo-color-violet-400);
+      }
+
+      /* Follow the system theme — remap semantic tokens for light mode. */
+      @media (prefers-color-scheme: light) {
+        :root {
+          --apollo-elevation-1: 0 1px 2px rgba(16,22,33,.08);
+          --apollo-elevation-2: 0 6px 22px rgba(16,22,33,.10);
+          --apollo-surface-canvas: var(--apollo-color-paper-100);
+          --apollo-surface-raised: var(--apollo-color-paper-50);
+          --apollo-surface-overlay: var(--apollo-color-paper-200);
+          --apollo-border-subtle: var(--apollo-color-paper-300);
+          --apollo-text-default: var(--apollo-color-slate-900);
+          --apollo-text-muted: var(--apollo-color-slate-500);
+          --apollo-accent: var(--apollo-color-azure-600);
+          --apollo-status-healed: var(--apollo-color-emerald-600);
+          --apollo-status-failed: var(--apollo-color-rose-600);
+          --apollo-status-duplicate: var(--apollo-color-amber-600);
+          --apollo-status-pr: var(--apollo-color-violet-600);
+        }
       }
       * { box-sizing: border-box; }
       body { margin: 0; font-family: var(--apollo-font-family);
