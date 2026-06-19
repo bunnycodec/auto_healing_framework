@@ -42,6 +42,20 @@ def test_heal_directory_deduplicates(tmp_path: Path) -> None:
     assert len(duplicate) == 2
 
 
+def test_heal_directory_skips_vanished_trace(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path)
+    make_broken_trace(tmp_path, folder="trace-a")
+    # A second trace that disappears before healing runs — mimics a Playwright
+    # retry folder wiped by a validation re-run. It must be skipped, not fatal.
+    ghost = make_broken_trace(tmp_path, folder="trace-b")
+    ghost.unlink()
+
+    engine = HealingEngine(app_settings=settings, ai_engine=RuleEngine())
+    reports = engine.heal_directory(tmp_path / "test-results")
+
+    assert any(r.status == "healed" for r in reports)
+
+
 def test_dry_run_does_not_modify(tmp_path: Path) -> None:
     settings = make_settings(tmp_path)
     trace_zip = make_broken_trace(tmp_path)

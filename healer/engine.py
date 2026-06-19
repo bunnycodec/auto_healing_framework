@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import zipfile
 from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
@@ -12,7 +13,7 @@ from .analyser import FailureAnalyser
 from .classifier import locator_signature
 from .detector import FailureDetector
 from .git_pr import GitPrManager
-from .models import CodePatch, FailureCategory, HealingReport
+from .models import CodePatch, FailureCategory, FailureContext, HealingReport
 from .modifier import TestFileModifier
 from .rerunner import TestRerunner
 
@@ -56,8 +57,19 @@ class HealingEngine:
         seen: dict[str, HealingReport] = {}
         patches: list[CodePatch] = []
 
+        # Read every trace's failure context up front. A validation re-run during
+        # healing wipes the framework's results dir (Playwright clears
+        # test-results on each run), so traces must be extracted before the first
+        # re-run. Any trace that has vanished or is corrupt is skipped, not fatal.
+        detected: list[tuple[Path, FailureContext]] = []
         for trace_zip in traces:
-            failure = self.detector.from_trace(trace_zip, self.settings.temp_dir)
+            try:
+                failure = self.detector.from_trace(trace_zip, self.settings.temp_dir)
+            except (OSError, zipfile.BadZipFile):
+                continue
+            detected.append((trace_zip, failure))
+
+        for trace_zip, failure in detected:
             classification = failure.classification
             signature = (
                 locator_signature(failure.failed_locator, failure.error_message)
