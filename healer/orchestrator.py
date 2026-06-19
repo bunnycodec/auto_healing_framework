@@ -39,7 +39,7 @@ class HealingOrchestrator:
         self.auto_pr = auto_pr
 
     def run(self) -> OrchestrationResult:
-        results_dir = self.settings.playwright_project_root / "test-results"
+        results_dir = self.settings.results_dir
         self._clear(results_dir)
 
         passed = self._run_tests()
@@ -62,7 +62,7 @@ class HealingOrchestrator:
     def _run_tests(self) -> bool:
         completed = subprocess.run(
             self.settings.test_command,
-            cwd=self.settings.playwright_project_root,
+            cwd=self.settings.project_root,
             shell=True,
             capture_output=True,
             text=True,

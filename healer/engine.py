@@ -135,7 +135,7 @@ class HealingEngine:
         self.modifier.apply(patch)
 
         rerun = self.rerunner.rerun(
-            project_root=self.settings.playwright_project_root,
+            project_root=self.settings.project_root,
             command=self.settings.test_command,
         )
         report.rerun_output = rerun.output
@@ -152,7 +152,7 @@ class HealingEngine:
     # ── Git/PR ──────────────────────────────────────────────────────────────
 
     def _commit(self, patches: list[CodePatch], reports: list[HealingReport]) -> None:
-        manager = GitPrManager(self.settings.playwright_project_root)
+        manager = GitPrManager(self.settings.project_root)
         if self.auto_pr:
             result = manager.commit_and_pr(patches)
             for report in reports:

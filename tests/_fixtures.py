@@ -31,7 +31,7 @@ def make_settings(work_dir: Path) -> Settings:
         kilo_api_key=None,
         kilo_api_url="https://api.kilo.ai/v1/messages",
         kilo_model="claude-sonnet",
-        playwright_project_root=project_root,
+        project_root=project_root,
         test_command=f'"{sys.executable}" validate.py',
         reports_dir=work_dir / "reports",
         temp_dir=work_dir / "trace-output",

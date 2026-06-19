@@ -70,6 +70,34 @@ AZURE_OPENAI_API_VERSION=2025-04-01-preview
 
 > `AI_MODE=rule` is deterministic and needs no API — handy for offline smoke tests.
 
+## Run it inside any test repo (framework-independent)
+
+The tool is decoupled from any specific project via a `healer.yml` config file. From
+inside the test repository you want to heal:
+
+```powershell
+auto-healer init        # generate a healer.yml
+# edit healer.yml: set framework, test_command, results_dir
+auto-healer run         # run tests -> collect traces -> heal, all config-driven
+```
+
+Example `healer.yml`:
+
+```yaml
+framework: playwright          # playwright | cypress | selenium
+language: typescript           # typescript | javascript | python
+project_root: .                # project under test (relative to this file)
+test_command: "npx playwright test --trace on"
+results_dir: test-results      # where trace.zip files are written
+workers: 4
+ai:
+  mode: azure-openai           # rule | azure-openai | ollama | kilo
+```
+
+Resolution precedence: **environment variables > `healer.yml` > defaults**. Secrets
+(API keys) always come from the environment / `.env`, never `healer.yml` — so CI can
+inject them safely.
+
 ## Usage
 
 ### Full pipeline (run tests -> collect traces -> heal)

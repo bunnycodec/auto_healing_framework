@@ -68,7 +68,7 @@ def main() -> int:
             kilo_api_key=None,
             kilo_api_url="https://api.kilo.ai/v1/messages",
             kilo_model="claude-sonnet",
-            playwright_project_root=project_root,
+            project_root=project_root,
             test_command=f'"{sys.executable}" validate.py',
             reports_dir=reports_dir,
             temp_dir=temp_dir,
