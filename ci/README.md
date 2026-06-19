@@ -16,7 +16,7 @@ produces, so **no change to your tests is required** — only a couple of extra 
 | Step | Command |
 |---|---|
 | Run tests (traces on) | `npx playwright test --trace on` — allow it to fail |
-| Install healer | `pip install git+https://github.com/bunnycodec/auto_healing_framework.git` |
+| Install healer | `pip install ai-auto-healer` |
 | Heal on failure | `auto-healer heal test-results --auto-pr` |
 
 Set these as CI secrets/env vars:
@@ -26,6 +26,35 @@ AI_MODE=azure-openai
 AZURE_OPENAI_API_KEY=...
 AZURE_OPENAI_ENDPOINT=...
 AZURE_OPENAI_DEPLOYMENT=...
+```
+
+## Install channels
+
+Pick whichever fits your runner — all install the same `auto-healer` CLI:
+
+| Channel | Use it when | How |
+|---|---|---|
+| **PyPI** | Python is available (most CI) | `pip install ai-auto-healer` |
+| **Composite Action** | GitHub Actions | `uses: bunnycodec/auto_healing_framework@v1` |
+| **Container image** | No Python / want hermetic | `ghcr.io/bunnycodec/ai-auto-healer:1` |
+
+### GitHub Actions — one step (composite action)
+
+```yaml
+- name: Run tests
+  id: tests
+  continue-on-error: true
+  run: npx playwright test --grep @smoke --trace on
+- name: Auto-heal
+  if: steps.tests.outcome == 'failure'
+  uses: bunnycodec/auto_healing_framework@v1
+  with:
+    results-dir: test-results
+    mode: azure-openai
+  env:
+    AZURE_OPENAI_API_KEY: ${{ secrets.AZURE_OPENAI_API_KEY }}
+    AZURE_OPENAI_ENDPOINT: ${{ secrets.AZURE_OPENAI_ENDPOINT }}
+    AZURE_OPENAI_DEPLOYMENT: ${{ secrets.AZURE_OPENAI_DEPLOYMENT }}
 ```
 
 ## Ready-to-use templates (copy into your TEST repo)

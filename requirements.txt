@@ -1,8 +1,8 @@
+# Runtime deps for the dashboard image (core + dashboard extra).
+# CI-only heal runs need just the core four; see pyproject [project.dependencies].
 beautifulsoup4>=4.12.3
-fastapi>=0.111.0
-httpx2>=0.28.0
-pytest>=8.2.0
 python-dotenv>=1.0.1
 pyyaml>=6.0
 requests>=2.32.3
+fastapi>=0.111.0
 uvicorn[standard]>=0.30.1

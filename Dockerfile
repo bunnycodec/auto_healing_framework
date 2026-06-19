@@ -25,9 +25,9 @@ COPY healer ./healer
 COPY scripts ./scripts
 COPY docker-entrypoint.sh ./
 
-# Install the package so the `auto-healer` console command is available, and
-# make the entrypoint executable.
-RUN pip install --no-cache-dir . \
+# Install the package (with the dashboard extra so `serve` works) so the
+# `auto-healer` console command is available, and make the entrypoint runnable.
+RUN pip install --no-cache-dir ".[dashboard]" \
     && chmod +x /app/docker-entrypoint.sh
 
 EXPOSE 8000
