@@ -32,11 +32,17 @@ class HealingEngine:
         dry_run: bool = False,
         auto_commit: bool = False,
         auto_pr: bool = False,
+        batch_validate: bool = False,
     ) -> None:
         self.settings = app_settings
         self.dry_run = dry_run
         self.auto_commit = auto_commit
         self.auto_pr = auto_pr
+        # batch_validate: apply every patch first, then validate with a SINGLE
+        # re-run instead of one re-run per locator. Much faster when many
+        # distinct locators are broken; the trade-off is coarser failure
+        # attribution (see heal_directory).
+        self.batch_validate = batch_validate
         self.run_id = _new_run_id()
         ai_engine = ai_engine or create_ai_engine()
         self.detector = FailureDetector()
@@ -56,6 +62,7 @@ class HealingEngine:
         reports: list[HealingReport] = []
         seen: dict[str, HealingReport] = {}
         patches: list[CodePatch] = []
+        prepared: list[tuple[HealingReport, CodePatch]] = []
 
         # Read every trace's failure context up front. A validation re-run during
         # healing wipes the framework's results dir (Playwright clears
@@ -91,12 +98,28 @@ class HealingEngine:
                 reports.append(self._save_report(duplicate))
                 continue
 
+            if self.batch_validate and not self.dry_run:
+                # Defer validation: prepare the patch and apply it, but don't
+                # re-run yet — a single re-run validates the whole batch below.
+                report, patch = self._prepare(trace_zip, precomputed_failure=failure)
+                if signature:
+                    seen[signature] = report
+                if patch is not None:
+                    prepared.append((report, patch))
+                    reports.append(report)
+                else:
+                    reports.append(self._save_report(report))
+                continue
+
             report = self._heal_single(trace_zip, precomputed_failure=failure)
             reports.append(self._save_report(report))
             if signature:
                 seen[signature] = report
             if report.patch and report.status == "healed":
                 patches.append(report.patch)
+
+        if prepared:
+            patches.extend(self._validate_batch(prepared))
 
         if patches and not self.dry_run and (self.auto_commit or self.auto_pr):
             self._commit(patches, reports)
@@ -105,7 +128,13 @@ class HealingEngine:
 
     # ── Core single-trace flow ──────────────────────────────────────────────
 
-    def _heal_single(self, trace_zip: Path, *, precomputed_failure=None) -> HealingReport:
+    def _prepare(self, trace_zip: Path, *, precomputed_failure=None) -> tuple[HealingReport, CodePatch | None]:
+        """Detect, classify, analyse and build a patch — no file writes, no re-run.
+
+        Returns the report plus a ready-to-apply patch (or ``None`` when the
+        failure is not healable, the AI returned nothing, or it could not be
+        mapped to a source line). Validation is the caller's responsibility.
+        """
         failure = precomputed_failure or self.detector.from_trace(trace_zip, self.settings.temp_dir)
         classification = failure.classification
         report = HealingReport(
@@ -122,13 +151,13 @@ class HealingEngine:
             report.messages.append(
                 f"Skipping non-locator failure: {classification.reason if classification else 'unknown'}"
             )
-            return report
+            return report, None
 
         suggestion = self.analyser.analyse(failure)
         report.suggestion = suggestion
         if not suggestion:
             report.messages.append("AI did not return a locator suggestion")
-            return report
+            return report, None
 
         patch = self.modifier.build_patch(
             project_root=self.settings.playwright_project_root,
@@ -138,7 +167,7 @@ class HealingEngine:
         )
         if not patch:
             report.messages.append("Could not map failure to a source code location")
-            return report
+            return report, None
 
         report.patch = patch
         report.patched_file = patch.file_path
@@ -148,6 +177,13 @@ class HealingEngine:
             report.messages.append(
                 f"[DRY RUN] Would patch {patch.file_path}:{patch.line_number}"
             )
+            return report, None
+
+        return report, patch
+
+    def _heal_single(self, trace_zip: Path, *, precomputed_failure=None) -> HealingReport:
+        report, patch = self._prepare(trace_zip, precomputed_failure=precomputed_failure)
+        if patch is None:
             return report
 
         backup_path = self.modifier.backup(Path(patch.file_path))
@@ -167,6 +203,47 @@ class HealingEngine:
         report.status = "restored"
         report.messages.append("Rerun failed; restored original file from backup")
         return report
+
+    def _validate_batch(self, prepared: list[tuple[HealingReport, CodePatch]]) -> list[CodePatch]:
+        """Apply all prepared patches, then validate with a SINGLE re-run.
+
+        Fast path for many distinct broken locators: one re-run instead of N.
+        Each unique file is backed up once (pristine) so multiple patches to the
+        same file restore cleanly. If the single re-run fails, every file is
+        restored and all reports are marked ``restored`` — re-run without batch
+        mode to validate (and salvage) each locator individually.
+        """
+        backups: dict[str, Path] = {}
+        for _, patch in prepared:
+            if patch.file_path not in backups:
+                backups[patch.file_path] = self.modifier.backup(Path(patch.file_path))
+            self.modifier.apply(patch)
+
+        rerun = self.rerunner.rerun(
+            project_root=self.settings.project_root,
+            command=self.settings.test_command,
+        )
+
+        healed: list[CodePatch] = []
+        if rerun.passed:
+            for report, patch in prepared:
+                report.status = "healed"
+                report.rerun_output = rerun.output
+                healed.append(patch)
+        else:
+            for file_path, backup_path in backups.items():
+                self.modifier.restore(Path(file_path), backup_path)
+            for report, _ in prepared:
+                report.status = "restored"
+                report.rerun_output = rerun.output
+                report.messages.append(
+                    "Batch validation re-run failed; restored all files. "
+                    "Re-run without batch mode to validate each locator individually."
+                )
+
+        for report, _ in prepared:
+            self._save_report(report)
+        return healed
 
     # ── Git/PR ──────────────────────────────────────────────────────────────
 

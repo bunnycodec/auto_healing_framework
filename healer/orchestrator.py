@@ -32,11 +32,13 @@ class HealingOrchestrator:
         dry_run: bool = False,
         auto_commit: bool = False,
         auto_pr: bool = False,
+        batch_validate: bool = False,
     ) -> None:
         self.settings = app_settings
         self.dry_run = dry_run
         self.auto_commit = auto_commit
         self.auto_pr = auto_pr
+        self.batch_validate = batch_validate
 
     def run(self) -> OrchestrationResult:
         results_dir = self.settings.results_dir
@@ -55,6 +57,7 @@ class HealingOrchestrator:
             dry_run=self.dry_run,
             auto_commit=self.auto_commit,
             auto_pr=self.auto_pr,
+            batch_validate=self.batch_validate,
         )
         reports = engine.heal_directory(results_dir)
         return OrchestrationResult(tests_passed=False, traces_found=len(traces), reports=reports)

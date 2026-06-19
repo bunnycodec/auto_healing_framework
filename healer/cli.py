@@ -105,11 +105,23 @@ def main() -> int:
     heal.add_argument("--dry-run", action="store_true", help="Preview changes without writing")
     heal.add_argument("--auto-commit", action="store_true", help="Commit fixes on a branch")
     heal.add_argument("--auto-pr", action="store_true", help="Open a PR with the fixes")
+    heal.add_argument(
+        "--validate-once",
+        action="store_true",
+        help="Apply all locator fixes, then validate with a single re-run "
+        "(faster for many distinct broken locators)",
+    )
 
     run = sub.add_parser("run", help="Run tests, collect traces, then heal failures")
     run.add_argument("--dry-run", action="store_true", help="Preview changes without writing")
     run.add_argument("--auto-commit", action="store_true", help="Commit fixes on a branch")
     run.add_argument("--auto-pr", action="store_true", help="Open a PR with the fixes")
+    run.add_argument(
+        "--validate-once",
+        action="store_true",
+        help="Apply all locator fixes, then validate with a single re-run "
+        "(faster for many distinct broken locators)",
+    )
 
     args = parser.parse_args()
 
@@ -137,6 +149,7 @@ def main() -> int:
             dry_run=args.dry_run,
             auto_commit=args.auto_commit,
             auto_pr=args.auto_pr,
+            batch_validate=args.validate_once,
         )
         if target.is_dir():
             reports = engine.heal_directory(target)
@@ -152,6 +165,7 @@ def main() -> int:
             dry_run=args.dry_run,
             auto_commit=args.auto_commit,
             auto_pr=args.auto_pr,
+            batch_validate=args.validate_once,
         )
         result = orchestrator.run()
         if result.tests_passed:

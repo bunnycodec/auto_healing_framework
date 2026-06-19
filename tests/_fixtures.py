@@ -38,6 +38,47 @@ def make_settings(work_dir: Path) -> Settings:
     )
 
 
+def make_second_broken_trace(work_dir: Path, *, folder: str = "broken-submit-button") -> Path:
+    """A second, DISTINCT broken locator in its own page object + trace.
+
+    Used to exercise multi-locator healing (the batch-validate path needs two
+    different locators so they aren't deduplicated into one).
+    """
+    project_root = work_dir / "playwright-tests"
+    tests_dir = project_root / "tests"
+    tests_dir.mkdir(parents=True, exist_ok=True)
+
+    test_file = tests_dir / "contact.page.ts"
+    test_file.write_text(
+        "export class ContactPage {\n"
+        "  get submitButton() {\n"
+        "    return this.page.getByRole('button', { name: /Sumbit/i });\n"
+        "  }\n"
+        "}\n",
+        encoding="utf-8",
+    )
+
+    trace_dir = work_dir / "test-results" / folder
+    trace_dir.mkdir(parents=True, exist_ok=True)
+
+    error_context = trace_dir / "error-context.md"
+    error_context.write_text(
+        "TimeoutError: locator.click: Timeout 10000ms exceeded.\n"
+        "Call log:\n"
+        "  - waiting for getByRole('button', { name: /Sumbit/i })\n\n"
+        f"    at Object.<anonymous> ({test_file}:3:36)\n",
+        encoding="utf-8",
+    )
+
+    trace_zip = trace_dir / "trace.zip"
+    with zipfile.ZipFile(trace_zip, "w") as archive:
+        archive.writestr(
+            "resources/snapshot.html",
+            "<html><body><main><button>Submit</button></main></body></html>",
+        )
+    return trace_zip
+
+
 def make_broken_trace(work_dir: Path, *, folder: str = "broken-start-button") -> Path:
     """Create a broken page object + a matching trace.zip and error context."""
     project_root = work_dir / "playwright-tests"
