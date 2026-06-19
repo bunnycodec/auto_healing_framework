@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>AI Auto-Healing Framework</title>
+    <style>
+      :root { color-scheme: light dark; }
+      body { font-family: system-ui, sans-serif; margin: 2rem auto; max-width: 880px; line-height: 1.55; padding: 0 1rem; }
+      h1 { margin-bottom: 0.25rem; }
+      code { background: rgba(127,127,127,0.18); padding: 0.1rem 0.35rem; border-radius: 4px; }
+      table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+      th, td { text-align: left; padding: 0.5rem 0.6rem; border-bottom: 1px solid rgba(127,127,127,0.3); }
+      .endpoint { font-weight: 600; }
+      .pill { display: inline-block; padding: 0.05rem 0.5rem; border-radius: 999px; background: rgba(80,160,120,0.25); font-size: 0.8rem; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>AI Auto-Healing Framework <span class="pill">Python · FastAPI</span></h1>
+      <p>Detect broken Playwright locators, fix them with AI, validate, and report.</p>
+
+      <h2>API</h2>
+      <table>
+        <thead>
+          <tr><th>Method</th><th>Endpoint</th><th>Purpose</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>POST</td><td class="endpoint">/run</td><td>Heal a single <code>trace.zip</code></td></tr>
+          <tr><td>POST</td><td class="endpoint">/heal-directory</td><td>Heal a results folder (with locator dedup)</td></tr>
+          <tr><td>POST</td><td class="endpoint">/orchestrate</td><td>Run tests, collect traces, then heal</td></tr>
+          <tr><td>GET</td><td class="endpoint">/reports</td><td>List generated JSON healing reports</td></tr>
+          <tr><td>GET</td><td class="endpoint">/health</td><td>Service health check</td></tr>
+        </tbody>
+      </table>
+
+      <h2>Example</h2>
+      <pre><code>curl -X POST http://localhost:8000/run \
+  -H "Content-Type: application/json" \
+  -d '{"trace_zip": "path/to/trace.zip"}'</code></pre>
+
+      <p>Configure the AI provider with <code>AI_MODE</code> (<code>rule</code>, <code>azure-openai</code>, <code>ollama</code>, <code>kilo</code>) in your <code>.env</code>.</p>
+    </main>
+  </body>
+</html>

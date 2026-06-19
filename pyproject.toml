@@ -1,0 +1,23 @@
+[project]
+name = "ai-auto-healer"
+version = "1.0.0"
+description = "AI-powered self-healing for Playwright test suites: detect broken locators, fix them with an LLM, validate, and report."
+requires-python = ">=3.10"
+dependencies = [
+    "beautifulsoup4>=4.12.3",
+    "fastapi>=0.111.0",
+    "httpx2>=0.28.0",
+    "python-dotenv>=1.0.1",
+    "requests>=2.32.3",
+    "uvicorn[standard]>=0.30.1",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.2.0"]
+
+[project.scripts]
+auto-healer = "healer.cli:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

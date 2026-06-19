@@ -1,0 +1,7 @@
+beautifulsoup4>=4.12.3
+fastapi>=0.111.0
+httpx2>=0.28.0
+pytest>=8.2.0
+python-dotenv>=1.0.1
+requests>=2.32.3
+uvicorn[standard]>=0.30.1

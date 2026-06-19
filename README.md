@@ -1,174 +1,131 @@
-# 🩹 Playwright Self-Heal
+# AI Auto-Healing Framework
 
-A **framework-agnostic, self-healing tool** for Playwright test suites. When tests fail due to broken locators, this tool automatically:
+AI-powered self-healing for **Playwright** test suites. When a test fails because a
+locator changed, this tool automatically:
 
-1. **Parses** Playwright trace files (`.zip`)
-2. **Extracts** DOM snapshots, network traffic, and action logs
-3. **Classifies** failures (locator vs. network vs. assertion vs. environment)
-4. **Resolves** the correct locator using LLM-powered DOM analysis
-5. **Patches** the source code with the fixed locator
-6. **Re-runs** the failed test to validate the fix
-7. **Commits** the change and **raises a PR**
+1. **Detects** the failure from the Playwright `trace.zip`
+2. **Classifies** it (locator / timeout / network / assertion / environment)
+3. **Extracts** the failed locator, source location, and an accessibility (aria) DOM snapshot
+4. **Asks an LLM** for the corrected locator
+5. **Patches** the source file (line-precise, with a project-wide grep fallback)
+6. **Re-runs** the affected test and **auto-restores** on failure
+7. **Reports** the result as JSON (and can open a PR)
 
 ```
-Test Fails → Trace Collected → DOM Analyzed → Locator Fixed → Test Passes → PR Raised ✅
-```
-
-## Quick Start
-
-```bash
-# Install
-npm install playwright-self-heal
-
-# Set your LLM provider key
-export LLM_PROVIDER=openai
-export OPENAI_API_KEY=sk-...
-
-# Heal broken locators from trace files
-npx self-heal heal --trace ./test-results --auto-pr
+Test fails → trace collected → DOM analyzed → locator fixed → test passes → report/PR
 ```
 
 ## Architecture
 
 ```
-src/
-├── cli/                  # CLI interface (commander)
-├── trace-parser/         # Extracts data from Playwright trace .zip files
-├── failure-classifier/   # Classifies failure root cause
-├── llm/                  # Pluggable LLM providers (OpenAI, Azure, Anthropic, Gemini)
-├── locator-resolver/     # LLM-powered locator suggestion from DOM snapshots
-├── code-patcher/         # Maps failures to source files and patches locators
-├── test-runner/          # Re-runs tests to validate fixes
-├── git-pr/               # Git commit, push, and PR creation
-└── types/                # TypeScript type definitions
+app/                  # FastAPI service + dashboard
+├── main.py
+└── routes/           # /run, /heal-directory, /orchestrate, /reports, /health
+
+ai/                   # Pluggable AI engines
+├── base.py
+├── factory.py        # AI_MODE -> engine
+├── rule_engine.py    # deterministic, offline (no API needed)
+├── azure_openai_engine.py
+├── ollama_engine.py
+└── kilo_engine.py
+
+healer/               # Core healing engine
+├── detector.py       # trace + error + aria-DOM extraction (with trace-log fallback)
+├── classifier.py     # failure classification + locator dedup signature
+├── analyser.py       # calls the AI engine
+├── modifier.py       # line-precise patch + grep fallback + backup/restore
+├── rerunner.py       # targeted re-run validation
+├── git_pr.py         # branch / commit / PR
+├── engine.py         # single-trace + directory healing (deduplicated)
+└── orchestrator.py   # run tests -> collect traces -> heal
+
+config.py             # settings from environment / .env
+scripts/              # heal_gds.py, self_test.py, fastapi_ai_demo.py
+tests/                # pytest suite
 ```
 
-## CLI Usage
+## Setup
 
-### `self-heal heal` — Full healing pipeline
-
-```bash
-npx self-heal heal \
-  --trace ./test-results \           # Trace file (.zip) or directory
-  --project ./my-test-project \      # Test project root (default: cwd)
-  --test-command "npx playwright test" \  # Test runner command
-  --provider openai \                # LLM provider
-  --auto-commit \                    # Commit fixes automatically
-  --auto-pr \                        # Create a PR
-  --dry-run                          # Preview changes without modifying files
+```powershell
+py -3 -m venv .venv
+.venv\Scripts\python -m pip install -r requirements.txt
 ```
 
-### `self-heal analyze` — Classify failures only
+Configure the AI provider in `.env` (see `.env.example`):
 
-```bash
-npx self-heal analyze --trace ./test-results/trace.zip
+```ini
+AI_MODE=azure-openai          # rule | azure-openai | ollama | kilo
+AZURE_OPENAI_API_KEY=...
+AZURE_OPENAI_ENDPOINT=...
+AZURE_OPENAI_DEPLOYMENT=...
+AZURE_OPENAI_API_VERSION=2025-04-01-preview
 ```
 
-Output:
-```
-📋 Test: should display user profile
-   File: tests/profile.spec.ts
-   Category:   locator
-   Confidence: 95%
-   Reason:     Locator failure: Selector "#user-name" could not find a matching element.
-   Selector:   #user-name
-```
+> `AI_MODE=rule` is deterministic and needs no API — handy for offline smoke tests.
 
-## Programmatic API
+## Usage
 
-```typescript
-import { SelfHealEngine, SelfHealConfig } from 'playwright-self-heal';
+### Full pipeline (run tests -> collect traces -> heal)
 
-const config: SelfHealConfig = {
-  tracePath: './test-results',
-  projectRoot: './my-test-project',
-  llm: {
-    provider: 'openai',
-    apiKey: process.env.OPENAI_API_KEY!,
-    model: 'gpt-4o',
-  },
-  git: {
-    remote: 'origin',
-    baseBranch: 'main',
-    branchPrefix: 'self-heal',
-  },
-  testCommand: 'npx playwright test',
-  autoCommit: true,
-  autoPr: true,
-  maxRetries: 1,
-  dryRun: false,
-};
-
-const engine = new SelfHealEngine(config);
-
-// Optional: progress logging
-engine.setProgressCallback((message, phase) => {
-  console.log(`[${phase}] ${message}`);
-});
-
-const results = await engine.heal();
-
-for (const result of results) {
-  console.log(`${result.testName}: ${result.rerunPassed ? 'HEALED ✅' : 'FAILED ❌'}`);
-  if (result.prUrl) console.log(`  PR: ${result.prUrl}`);
-}
+```powershell
+.venv\Scripts\python -m healer.cli run            # heal
+.venv\Scripts\python -m healer.cli run --dry-run  # preview only
 ```
 
-## LLM Provider Configuration
+Point it at a project with environment variables:
 
-Configure via environment variables or CLI flags. Copy `.env.example` to `.env` and set your provider:
+```powershell
+$env:PLAYWRIGHT_PROJECT_ROOT = "C:\path\to\playwright-project"
+$env:TEST_COMMAND = "npm run test:smoke -- --trace on --workers 15"
+.venv\Scripts\python -m healer.cli run
+```
 
-| Provider | Env Vars |
-|---|---|
-| **OpenAI** | `LLM_PROVIDER=openai`, `OPENAI_API_KEY`, `OPENAI_MODEL` |
-| **Azure OpenAI** | `LLM_PROVIDER=azure-openai`, `AZURE_OPENAI_API_KEY`, `AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_DEPLOYMENT` |
-| **Anthropic** | `LLM_PROVIDER=anthropic`, `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL` |
-| **Google Gemini** | `LLM_PROVIDER=gemini`, `GEMINI_API_KEY`, `GEMINI_MODEL` |
+### Heal existing traces
 
-## Failure Classification
+```powershell
+# A whole results folder (locator de-duplicated)
+.venv\Scripts\python -m healer.cli heal "C:\path\to\test-results" --auto-pr
 
-The classifier distinguishes between failure types:
+# A single trace
+.venv\Scripts\python -m healer.cli heal "path\to\trace.zip"
+```
 
-| Category | Healable | Description |
+### Demo against the bundled GDS framework
+
+```powershell
+.venv\Scripts\python scripts\heal_gds.py
+```
+
+### FastAPI service
+
+```powershell
+.venv\Scripts\python -m uvicorn app.main:app --reload
+```
+
+| Method | Endpoint | Purpose |
 |---|---|---|
-| `locator` | ✅ Yes | Element not found, selector mismatch |
-| `timeout` | ❌ No | Generic timeout (not locator-related) |
-| `network` | ❌ No | API/network failure |
-| `assertion` | ❌ No | Value assertion mismatch |
-| `environment` | ❌ No | Browser crash, page error |
-| `unknown` | ❌ No | Unclassified failure |
+| `POST` | `/run` | Heal a single `trace.zip` |
+| `POST` | `/heal-directory` | Heal a results folder (dedup) |
+| `POST` | `/orchestrate` | Run tests, collect traces, then heal |
+| `GET`  | `/reports` | List generated JSON reports |
+| `GET`  | `/health` | Health check |
 
-## CI/CD Integration
+## Validation
 
-### GitHub Actions
-
-```yaml
-- name: Run Playwright tests
-  run: npx playwright test --trace on
-  continue-on-error: true
-
-- name: Self-heal broken locators
-  run: npx self-heal heal --trace ./test-results --auto-pr
-  env:
-    LLM_PROVIDER: openai
-    OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-    GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+```powershell
+.venv\Scripts\python -m pytest                    # unit + integration tests
+.venv\Scripts\python scripts\self_test.py         # deterministic end-to-end (no AI)
 ```
 
-## How It Works
+## How it stays reliable
 
-1. **Trace Parsing**: Extracts newline-delimited JSON events from Playwright trace `.zip` files, including action logs, DOM snapshots, and network requests.
-
-2. **Failure Classification**: Pattern-matches error messages against known locator failure signatures (e.g., "waiting for selector", "element not found") to classify the root cause.
-
-3. **LLM-Powered Resolution**: Sends the broken selector and relevant DOM snapshot to an LLM, which analyzes the HTML structure and suggests the correct Playwright locator using the most robust strategy available (role > testId > text > CSS).
-
-4. **Code Patching**: Parses the stack trace from the failed action to find the exact source file and line number, then surgically replaces the old locator with the new one.
-
-5. **Validation**: Re-runs only the failed test. If it passes, the fix is accepted; if it still fails, the patch is reverted.
-
-6. **PR Creation**: Commits the validated fix on a new branch and creates a PR with a detailed description of what was changed and why.
-
-## License
-
-MIT
+- **Trace action-log fallback** — if `error-context.md` is missing/corrupted (a known
+  high-parallelism race), the detector recovers the locator + source line from the
+  trace's `.trace` action log.
+- **Aria-snapshot DOM context** — the AI is fed the accessibility tree (role + accessible
+  name), which is what locators actually target.
+- **Locator de-duplication** — many tests fail on one broken locator; only one trace is
+  sent to the LLM, the rest are reported as duplicates.
+- **Safe patching** — line-precise edits with timestamped backups; if the re-run fails,
+  the original file is automatically restored.
