@@ -86,24 +86,19 @@
         border-radius: var(--apollo-radius-lg); padding: var(--apollo-space-4); box-shadow: var(--apollo-elevation-1); }
       .panel h2 { font-size: var(--apollo-font-size-md); margin: 0 0 var(--apollo-space-3);
         color: var(--apollo-text-muted); text-transform: uppercase; letter-spacing: .05em; }
-      .bar-row { display: flex; align-items: center; gap: var(--apollo-space-2); margin: var(--apollo-space-1) 0; font-size: var(--apollo-font-size-sm); }
-      .bar-row .name { width: 90px; color: var(--apollo-text-muted); }
-      .bar-track { flex: 1; height: 10px; background: var(--apollo-surface-overlay); border-radius: var(--apollo-radius-sm); overflow: hidden; }
-      .bar-fill { height: 100%; border-radius: var(--apollo-radius-sm); }
-      .bar-row .count { width: 28px; text-align: right; }
       table { width: 100%; border-collapse: collapse; font-size: var(--apollo-font-size-sm); }
       th, td { text-align: left; padding: var(--apollo-space-2); border-bottom: 1px solid var(--apollo-border-subtle); }
       th { color: var(--apollo-text-muted); font-weight: var(--apollo-font-weight-medium); }
       td code { background: var(--apollo-surface-overlay); padding: var(--apollo-space-1) var(--apollo-space-2);
         border-radius: var(--apollo-radius-sm); font-size: var(--apollo-font-size-xs); }
+      td code.before { background: rgba(248,81,73,.14); color: var(--apollo-status-failed); }
+      td code.after { background: rgba(63,185,80,.14); color: var(--apollo-status-healed); }
       .pill { display: inline-block; padding: var(--apollo-space-1) var(--apollo-space-3);
         border-radius: var(--apollo-radius-pill); font-size: var(--apollo-font-size-xs); font-weight: var(--apollo-font-weight-medium); }
       .s-healed { background: rgba(63,185,80,.18); color: var(--apollo-status-healed); }
       .s-failed, .s-restored { background: rgba(248,81,73,.18); color: var(--apollo-status-failed); }
       .s-duplicate { background: rgba(210,153,34,.18); color: var(--apollo-status-duplicate); }
-      .arrow { color: var(--apollo-accent); }
       .empty { color: var(--apollo-text-muted); padding: var(--apollo-space-4) 0; }
-      .spark { margin-top: var(--apollo-space-5); }
     </style>
   </head>
   <body>
@@ -114,84 +109,33 @@
     <main>
       <div class="cards" id="cards"></div>
 
-      <div class="panel spark">
-        <h2>Healing activity (by day)</h2>
-        <div id="timeline"></div>
+      <div class="panel" style="margin-top:var(--apollo-space-5)">
+        <h2>Recent healing events</h2>
+        <div id="recent"></div>
       </div>
 
       <div class="panel" style="margin-top:var(--apollo-space-4)">
         <h2>Runs (latest first)</h2>
         <div id="runs"></div>
       </div>
-
-      <div class="grid2">
-        <div class="panel">
-          <h2>Status breakdown</h2>
-          <div id="status"></div>
-        </div>
-        <div class="panel">
-          <h2>Failure categories</h2>
-          <div id="category"></div>
-        </div>
-      </div>
-
-      <div class="panel" style="margin-top:var(--apollo-space-4)">
-        <h2>Recent healing events</h2>
-        <div id="recent"></div>
-      </div>
     </main>
 
     <script>
-      const STATUS_COLORS = {
-        healed: getCssVar('--apollo-status-healed'), failed: getCssVar('--apollo-status-failed'),
-        restored: getCssVar('--apollo-status-failed'),
-        duplicate: getCssVar('--apollo-status-duplicate'), unknown: getCssVar('--apollo-text-muted'),
-      };
       function getCssVar(n){ return getComputedStyle(document.documentElement).getPropertyValue(n).trim(); }
 
       function card(label, value){ return `<div class="card"><div class="label">${label}</div><div class="value">${value}</div></div>`; }
-
-      function bars(containerId, data, colorFn){
-        const el = document.getElementById(containerId);
-        const entries = Object.entries(data || {});
-        if(!entries.length){ el.innerHTML = '<div class="empty">No data yet</div>'; return; }
-        const max = Math.max(...entries.map(([,v]) => v), 1);
-        el.innerHTML = entries.map(([k,v]) => `
-          <div class="bar-row">
-            <span class="name">${k}</span>
-            <span class="bar-track"><span class="bar-fill" style="width:${(v/max*100).toFixed(0)}%;background:${colorFn(k)}"></span></span>
-            <span class="count">${v}</span>
-          </div>`).join('');
-      }
-
-      function renderTimeline(timeline){
-        const el = document.getElementById('timeline');
-        const days = Object.keys(timeline || {});
-        if(!days.length){ el.innerHTML = '<div class="empty">No activity recorded yet</div>'; return; }
-        const max = Math.max(...days.map(d => Object.values(timeline[d]).reduce((a,b)=>a+b,0)), 1);
-        el.innerHTML = `<div style="display:flex;align-items:flex-end;gap:6px;height:120px">` +
-          days.map(d => {
-            const counts = timeline[d];
-            const total = Object.values(counts).reduce((a,b)=>a+b,0);
-            const segs = Object.entries(counts).map(([s,c]) =>
-              `<div title="${s}: ${c}" style="height:${(c/total*100).toFixed(0)}%;background:${STATUS_COLORS[s]||'#888'}"></div>`).join('');
-            return `<div style="flex:1;text-align:center">
-                      <div style="height:100px;display:flex;flex-direction:column-reverse;border-radius:6px;overflow:hidden">${segs}<div style="flex:1"></div></div>
-                      <div style="font-size:.62rem;color:var(--apollo-text-muted);margin-top:4px">${d.slice(5)}</div>
-                    </div>`;
-          }).join('') + `</div>`;
-      }
 
       function renderRecent(recent){
         const el = document.getElementById('recent');
         if(!recent || !recent.length){ el.innerHTML = '<div class="empty">No events yet — run <code>auto-healer run</code></div>'; return; }
         el.innerHTML = `<table><thead><tr>
-            <th>Time</th><th>Test</th><th>Status</th><th>Fix</th><th>Conf.</th></tr></thead><tbody>` +
+            <th>Time</th><th>Test</th><th>Status</th><th>Before</th><th>After</th><th>Conf.</th></tr></thead><tbody>` +
           recent.map(r => `<tr>
               <td>${(r.created_at||'').slice(11,19) || '—'}</td>
               <td>${escapeHtml(r.test_name || '—')}</td>
               <td><span class="pill s-${r.status}">${r.status}</span></td>
-              <td>${r.old_locator ? `<code>${escapeHtml(trim(r.old_locator))}</code> <span class="arrow">→</span> <code>${escapeHtml(trim(r.new_locator))}</code>` : '<span style="color:var(--apollo-text-muted)">'+escapeHtml(r.category||'')+'</span>'}</td>
+              <td>${r.old_locator ? `<code class="before">${escapeHtml(trim(r.old_locator))}</code>` : '<span style="color:var(--apollo-text-muted)">'+escapeHtml(r.category||'—')+'</span>'}</td>
+              <td>${r.new_locator ? `<code class="after">${escapeHtml(trim(r.new_locator))}</code>` : '—'}</td>
               <td>${r.confidence != null ? Math.round(r.confidence*100)+'%' : '—'}</td>
             </tr>`).join('') + `</tbody></table>`;
       }
@@ -219,16 +163,10 @@
           card('Heal rate', Math.round((m.heal_rate||0)*100)+'%') +
           card('Healed', m.healed||0) +
           card('Failed', m.failed||0) +
-          card('Duplicates', m.duplicate||0) +
           card('Avg confidence', Math.round((m.avg_confidence||0)*100)+'%') +
-          card('PRs opened', m.prs_opened||0) +
-          card('Runs', m.total_runs||0) +
-          card('Total reports', m.total_reports||0);
-        renderTimeline(m.timeline);
-        renderRuns(m.runs);
-        bars('status', m.status_breakdown, k => STATUS_COLORS[k] || '#888');
-        bars('category', m.category_breakdown, () => getCssVar('--apollo-accent'));
+          card('Runs', m.total_runs||0);
         renderRecent(m.recent);
+        renderRuns(m.runs);
       }
 
       async function loadOnce(){
