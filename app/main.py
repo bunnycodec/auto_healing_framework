@@ -5,6 +5,7 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
 
+from app.routes.metrics import router as metrics_router
 from app.routes.report import router as report_router
 from app.routes.runner import router as runner_router
 
@@ -12,6 +13,7 @@ from app.routes.runner import router as runner_router
 app = FastAPI(title="AI Auto-Healing Framework")
 app.include_router(runner_router)
 app.include_router(report_router)
+app.include_router(metrics_router)
 
 _TEMPLATE = Path(__file__).resolve().parent / "templates" / "dashboard.html"
 

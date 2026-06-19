@@ -1,0 +1,20 @@
+# Exclude from the Docker build context (keep the image small)
+.git
+.gitignore
+.venv
+__pycache__
+*.py[cod]
+.pytest_cache
+.mypy_cache
+.ruff_cache
+*.egg-info
+build
+dist
+.env
+reports/*.json
+trace-output
+docs
+tests
+playwright-tests
+*.md
+!README.md

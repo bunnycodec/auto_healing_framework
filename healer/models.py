@@ -1,10 +1,15 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
 
 from ai.base import LocatorSuggestion
+
+
+def _utc_now() -> str:
+    return datetime.now(timezone.utc).isoformat()
 
 
 class FailureCategory(str, Enum):
@@ -65,3 +70,4 @@ class HealingReport:
     committed: bool = False
     pr_url: str | None = None
     messages: list[str] = field(default_factory=list)
+    created_at: str = field(default_factory=_utc_now)

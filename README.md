@@ -142,19 +142,47 @@ $env:TEST_COMMAND = "npm run test:smoke -- --trace on --workers 15"
 .venv\Scripts\python scripts\heal_gds.py
 ```
 
-### FastAPI service
+### FastAPI service & live dashboard
 
 ```powershell
 .venv\Scripts\python -m uvicorn app.main:app --reload
 ```
 
+Open **http://localhost:8000** for a real-time healing dashboard (heal rate, status &
+category breakdowns, activity timeline, recent events) that updates live via SSE.
+
 | Method | Endpoint | Purpose |
 |---|---|---|
+| `GET`  | `/` | Live telemetry dashboard |
+| `GET`  | `/metrics` | Aggregated healing metrics (JSON) |
+| `GET`  | `/metrics/stream` | Server-Sent Events live metrics feed |
 | `POST` | `/run` | Heal a single `trace.zip` |
 | `POST` | `/heal-directory` | Heal a results folder (dedup) |
 | `POST` | `/orchestrate` | Run tests, collect traces, then heal |
 | `GET`  | `/reports` | List generated JSON reports |
 | `GET`  | `/health` | Health check |
+
+## Docker
+
+Run anywhere with zero local Python setup.
+
+```bash
+# Build
+docker build -t ai-auto-healer .
+
+# Serve the dashboard + API (http://localhost:8000)
+docker run -p 8000:8000 --env-file .env ai-auto-healer
+
+# Or with compose (persists reports/ for dashboard history)
+docker compose up
+
+# Use the CLI inside the container against a mounted project
+docker run --rm -v ${PWD}:/work -w /work --env-file .env \
+  ai-auto-healer heal test-results --auto-pr
+```
+
+The container's entrypoint runs the dashboard by default (`serve`); any other argument
+is passed to the `auto-healer` CLI (`init`, `run`, `heal`).
 
 ## Validation
 

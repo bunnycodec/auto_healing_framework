@@ -1,0 +1,13 @@
+services:
+  # Dashboard + API (telemetry, real-time monitoring)
+  auto-healer:
+    build: .
+    image: ai-auto-healer
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    volumes:
+      # Persist generated reports so the dashboard keeps history across runs
+      - ./reports:/app/reports
+    restart: unless-stopped

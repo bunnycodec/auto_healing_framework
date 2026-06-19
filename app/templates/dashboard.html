@@ -3,43 +3,170 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>AI Auto-Healing Framework</title>
+    <title>AI Auto-Healing — Live Dashboard</title>
     <style>
-      :root { color-scheme: light dark; }
-      body { font-family: system-ui, sans-serif; margin: 2rem auto; max-width: 880px; line-height: 1.55; padding: 0 1rem; }
-      h1 { margin-bottom: 0.25rem; }
-      code { background: rgba(127,127,127,0.18); padding: 0.1rem 0.35rem; border-radius: 4px; }
-      table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
-      th, td { text-align: left; padding: 0.5rem 0.6rem; border-bottom: 1px solid rgba(127,127,127,0.3); }
-      .endpoint { font-weight: 600; }
-      .pill { display: inline-block; padding: 0.05rem 0.5rem; border-radius: 999px; background: rgba(80,160,120,0.25); font-size: 0.8rem; }
+      :root {
+        --bg: #0b0e14; --panel: #141925; --panel2: #1b2230; --line: #243044;
+        --text: #e6edf3; --muted: #8b98a9; --accent: #4cc9f0;
+        --healed: #3fb950; --failed: #f85149; --skipped: #8b98a9;
+        --duplicate: #d29922; --pr: #a371f7;
+      }
+      * { box-sizing: border-box; }
+      body { margin: 0; font-family: ui-sans-serif, system-ui, sans-serif; background: var(--bg); color: var(--text); }
+      header { display: flex; align-items: center; justify-content: space-between;
+        padding: 1rem 1.5rem; border-bottom: 1px solid var(--line); }
+      header h1 { font-size: 1.05rem; margin: 0; display: flex; align-items: center; gap: .6rem; }
+      .live { display: inline-flex; align-items: center; gap: .4rem; font-size: .75rem; color: var(--muted); }
+      .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--healed); animation: pulse 1.6s infinite; }
+      @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .3; } }
+      main { padding: 1.25rem 1.5rem; max-width: 1200px; margin: 0 auto; }
+      .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: .9rem; }
+      .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 1rem 1.1rem; }
+      .card .label { color: var(--muted); font-size: .72rem; text-transform: uppercase; letter-spacing: .05em; }
+      .card .value { font-size: 1.9rem; font-weight: 700; margin-top: .2rem; }
+      .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-top: 1.25rem; }
+      @media (max-width: 820px) { .grid2 { grid-template-columns: 1fr; } }
+      .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 1.1rem; }
+      .panel h2 { font-size: .85rem; margin: 0 0 .9rem; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+      .bar-row { display: flex; align-items: center; gap: .6rem; margin: .35rem 0; font-size: .85rem; }
+      .bar-row .name { width: 90px; color: var(--muted); }
+      .bar-track { flex: 1; height: 10px; background: var(--panel2); border-radius: 6px; overflow: hidden; }
+      .bar-fill { height: 100%; border-radius: 6px; }
+      .bar-row .count { width: 28px; text-align: right; }
+      table { width: 100%; border-collapse: collapse; font-size: .82rem; }
+      th, td { text-align: left; padding: .5rem .55rem; border-bottom: 1px solid var(--line); }
+      th { color: var(--muted); font-weight: 600; }
+      td code { background: var(--panel2); padding: .1rem .35rem; border-radius: 5px; font-size: .78rem; }
+      .pill { display: inline-block; padding: .1rem .5rem; border-radius: 999px; font-size: .72rem; font-weight: 600; }
+      .s-healed { background: rgba(63,185,80,.18); color: var(--healed); }
+      .s-failed, .s-restored { background: rgba(248,81,73,.18); color: var(--failed); }
+      .s-skipped { background: rgba(139,152,169,.18); color: var(--skipped); }
+      .s-duplicate { background: rgba(210,153,34,.18); color: var(--duplicate); }
+      .arrow { color: var(--accent); }
+      .empty { color: var(--muted); padding: 1rem 0; }
+      .spark { margin-top: 1.25rem; }
     </style>
   </head>
   <body>
+    <header>
+      <h1>🩹 AI Auto-Healing <span style="color:var(--muted);font-weight:400">Live Dashboard</span></h1>
+      <span class="live"><span class="dot" id="livedot"></span><span id="livetext">connecting…</span></span>
+    </header>
     <main>
-      <h1>AI Auto-Healing Framework <span class="pill">Python · FastAPI</span></h1>
-      <p>Detect broken Playwright locators, fix them with AI, validate, and report.</p>
+      <div class="cards" id="cards"></div>
 
-      <h2>API</h2>
-      <table>
-        <thead>
-          <tr><th>Method</th><th>Endpoint</th><th>Purpose</th></tr>
-        </thead>
-        <tbody>
-          <tr><td>POST</td><td class="endpoint">/run</td><td>Heal a single <code>trace.zip</code></td></tr>
-          <tr><td>POST</td><td class="endpoint">/heal-directory</td><td>Heal a results folder (with locator dedup)</td></tr>
-          <tr><td>POST</td><td class="endpoint">/orchestrate</td><td>Run tests, collect traces, then heal</td></tr>
-          <tr><td>GET</td><td class="endpoint">/reports</td><td>List generated JSON healing reports</td></tr>
-          <tr><td>GET</td><td class="endpoint">/health</td><td>Service health check</td></tr>
-        </tbody>
-      </table>
+      <div class="panel spark">
+        <h2>Healing activity (by day)</h2>
+        <div id="timeline"></div>
+      </div>
 
-      <h2>Example</h2>
-      <pre><code>curl -X POST http://localhost:8000/run \
-  -H "Content-Type: application/json" \
-  -d '{"trace_zip": "path/to/trace.zip"}'</code></pre>
+      <div class="grid2">
+        <div class="panel">
+          <h2>Status breakdown</h2>
+          <div id="status"></div>
+        </div>
+        <div class="panel">
+          <h2>Failure categories</h2>
+          <div id="category"></div>
+        </div>
+      </div>
 
-      <p>Configure the AI provider with <code>AI_MODE</code> (<code>rule</code>, <code>azure-openai</code>, <code>ollama</code>, <code>kilo</code>) in your <code>.env</code>.</p>
+      <div class="panel" style="margin-top:1rem">
+        <h2>Recent healing events</h2>
+        <div id="recent"></div>
+      </div>
     </main>
+
+    <script>
+      const STATUS_COLORS = {
+        healed: getCssVar('--healed'), failed: getCssVar('--failed'),
+        restored: getCssVar('--failed'), skipped: getCssVar('--skipped'),
+        duplicate: getCssVar('--duplicate'), unknown: getCssVar('--skipped'),
+      };
+      function getCssVar(n){ return getComputedStyle(document.documentElement).getPropertyValue(n).trim(); }
+
+      function card(label, value){ return `<div class="card"><div class="label">${label}</div><div class="value">${value}</div></div>`; }
+
+      function bars(containerId, data, colorFn){
+        const el = document.getElementById(containerId);
+        const entries = Object.entries(data || {});
+        if(!entries.length){ el.innerHTML = '<div class="empty">No data yet</div>'; return; }
+        const max = Math.max(...entries.map(([,v]) => v), 1);
+        el.innerHTML = entries.map(([k,v]) => `
+          <div class="bar-row">
+            <span class="name">${k}</span>
+            <span class="bar-track"><span class="bar-fill" style="width:${(v/max*100).toFixed(0)}%;background:${colorFn(k)}"></span></span>
+            <span class="count">${v}</span>
+          </div>`).join('');
+      }
+
+      function renderTimeline(timeline){
+        const el = document.getElementById('timeline');
+        const days = Object.keys(timeline || {});
+        if(!days.length){ el.innerHTML = '<div class="empty">No activity recorded yet</div>'; return; }
+        const max = Math.max(...days.map(d => Object.values(timeline[d]).reduce((a,b)=>a+b,0)), 1);
+        el.innerHTML = `<div style="display:flex;align-items:flex-end;gap:6px;height:120px">` +
+          days.map(d => {
+            const counts = timeline[d];
+            const total = Object.values(counts).reduce((a,b)=>a+b,0);
+            const segs = Object.entries(counts).map(([s,c]) =>
+              `<div title="${s}: ${c}" style="height:${(c/total*100).toFixed(0)}%;background:${STATUS_COLORS[s]||'#888'}"></div>`).join('');
+            return `<div style="flex:1;text-align:center">
+                      <div style="height:100px;display:flex;flex-direction:column-reverse;border-radius:6px;overflow:hidden">${segs}<div style="flex:1"></div></div>
+                      <div style="font-size:.62rem;color:var(--muted);margin-top:4px">${d.slice(5)}</div>
+                    </div>`;
+          }).join('') + `</div>`;
+      }
+
+      function renderRecent(recent){
+        const el = document.getElementById('recent');
+        if(!recent || !recent.length){ el.innerHTML = '<div class="empty">No events yet — run <code>auto-healer run</code></div>'; return; }
+        el.innerHTML = `<table><thead><tr>
+            <th>Time</th><th>Test</th><th>Status</th><th>Fix</th><th>Conf.</th></tr></thead><tbody>` +
+          recent.map(r => `<tr>
+              <td>${(r.created_at||'').slice(11,19) || '—'}</td>
+              <td>${escapeHtml(r.test_name || '—')}</td>
+              <td><span class="pill s-${r.status}">${r.status}</span></td>
+              <td>${r.old_locator ? `<code>${escapeHtml(trim(r.old_locator))}</code> <span class="arrow">→</span> <code>${escapeHtml(trim(r.new_locator))}</code>` : '<span style="color:var(--muted)">'+escapeHtml(r.category||'')+'</span>'}</td>
+              <td>${r.confidence != null ? Math.round(r.confidence*100)+'%' : '—'}</td>
+            </tr>`).join('') + `</tbody></table>`;
+      }
+
+      function trim(s){ s = s||''; return s.length > 42 ? s.slice(0,40)+'…' : s; }
+      function escapeHtml(s){ return (s||'').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+      function render(m){
+        document.getElementById('cards').innerHTML =
+          card('Heal rate', Math.round((m.heal_rate||0)*100)+'%') +
+          card('Healed', m.healed||0) +
+          card('Failed', m.failed||0) +
+          card('Skipped', m.skipped||0) +
+          card('Duplicates', m.duplicate||0) +
+          card('Avg confidence', Math.round((m.avg_confidence||0)*100)+'%') +
+          card('PRs opened', m.prs_opened||0) +
+          card('Total reports', m.total_reports||0);
+        renderTimeline(m.timeline);
+        bars('status', m.status_breakdown, k => STATUS_COLORS[k] || '#888');
+        bars('category', m.category_breakdown, () => getCssVar('--accent'));
+        renderRecent(m.recent);
+      }
+
+      async function loadOnce(){
+        try { const r = await fetch('/metrics'); render(await r.json()); } catch(e){}
+      }
+
+      function connectStream(){
+        const dot = document.getElementById('livedot'), txt = document.getElementById('livetext');
+        try {
+          const es = new EventSource('/metrics/stream');
+          es.onopen = () => { dot.style.background = getCssVar('--healed'); txt.textContent = 'live'; };
+          es.onmessage = (e) => { try { render(JSON.parse(e.data)); } catch(_){} };
+          es.onerror = () => { dot.style.background = getCssVar('--failed'); txt.textContent = 'reconnecting…'; };
+        } catch(e) { setInterval(loadOnce, 5000); }
+      }
+
+      loadOnce();
+      connectStream();
+    </script>
   </body>
 </html>
