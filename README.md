@@ -52,6 +52,12 @@ py -3 -m venv .venv
 .venv\Scripts\python -m pip install -r requirements.txt
 ```
 
+Optionally install as a package to get the `auto-healer` console command:
+
+```powershell
+.venv\Scripts\python -m pip install -e .
+```
+
 Configure the AI provider in `.env` (see `.env.example`):
 
 ```ini
@@ -67,6 +73,17 @@ AZURE_OPENAI_API_VERSION=2025-04-01-preview
 ## Usage
 
 ### Full pipeline (run tests -> collect traces -> heal)
+
+After `pip install -e .` you can use the `auto-healer` console command:
+
+```powershell
+auto-healer run                # heal
+auto-healer run --dry-run      # preview only
+auto-healer heal "C:\path\to\test-results" --auto-pr
+auto-healer heal "path\to\trace.zip"
+```
+
+Or call the module directly (no install needed):
 
 ```powershell
 .venv\Scripts\python -m healer.cli run            # heal
