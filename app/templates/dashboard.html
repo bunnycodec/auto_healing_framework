@@ -90,7 +90,8 @@
       th, td { text-align: left; padding: var(--apollo-space-2); border-bottom: 1px solid var(--apollo-border-subtle); }
       th { color: var(--apollo-text-muted); font-weight: var(--apollo-font-weight-medium); }
       td code { background: var(--apollo-surface-overlay); padding: var(--apollo-space-1) var(--apollo-space-2);
-        border-radius: var(--apollo-radius-sm); font-size: var(--apollo-font-size-xs); }
+        border-radius: var(--apollo-radius-sm); font-size: var(--apollo-font-size-xs);
+        display: inline-block; white-space: pre-wrap; word-break: break-all; max-width: 100%; }
       td code.before { background: rgba(248,81,73,.14); color: var(--apollo-status-failed); }
       td code.after { background: rgba(63,185,80,.14); color: var(--apollo-status-healed); }
       .pill { display: inline-block; padding: var(--apollo-space-1) var(--apollo-space-3);
@@ -134,8 +135,8 @@
               <td>${(r.created_at||'').slice(11,19) || '—'}</td>
               <td>${escapeHtml(r.test_name || '—')}</td>
               <td><span class="pill s-${r.status}">${r.status}</span></td>
-              <td>${r.old_locator ? `<code class="before">${escapeHtml(trim(r.old_locator))}</code>` : '<span style="color:var(--apollo-text-muted)">'+escapeHtml(r.category||'—')+'</span>'}</td>
-              <td>${r.new_locator ? `<code class="after">${escapeHtml(trim(r.new_locator))}</code>` : '—'}</td>
+              <td>${r.old_locator ? `<code class="before">${escapeHtml(r.old_locator)}</code>` : '<span style="color:var(--apollo-text-muted)">'+escapeHtml(r.category||'—')+'</span>'}</td>
+              <td>${r.new_locator ? `<code class="after">${escapeHtml(r.new_locator)}</code>` : '—'}</td>
               <td>${r.confidence != null ? Math.round(r.confidence*100)+'%' : '—'}</td>
             </tr>`).join('') + `</tbody></table>`;
       }
@@ -155,7 +156,6 @@
             </tr>`).join('') + `</tbody></table>`;
       }
 
-      function trim(s){ s = s||''; return s.length > 42 ? s.slice(0,40)+'…' : s; }
       function escapeHtml(s){ return (s||'').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
 
       function render(m){
