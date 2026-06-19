@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import shutil
-from datetime import datetime
 from pathlib import Path
 
 from ai.base import LocatorSuggestion
@@ -23,14 +21,17 @@ SOURCE_SUFFIXES = {".ts", ".js", ".mts", ".mjs"}
 
 
 class TestFileModifier:
-    def backup(self, file_path: Path) -> Path:
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-        backup_path = file_path.with_suffix(file_path.suffix + f".backup_{timestamp}")
-        shutil.copy2(file_path, backup_path)
-        return backup_path
+    def snapshot(self, file_path: Path) -> str:
+        """Capture a file's current content in memory for rollback.
 
-    def restore(self, file_path: Path, backup_path: Path) -> None:
-        shutil.copy2(backup_path, file_path)
+        Used as the pre-patch safety net during validation: if the re-run
+        fails, ``restore`` rewrites this content. No sidecar backup file is
+        written — git is the durable audit trail once a PR is raised.
+        """
+        return file_path.read_text(encoding="utf-8")
+
+    def restore(self, file_path: Path, content: str) -> None:
+        file_path.write_text(content, encoding="utf-8")
 
     def build_patch(
         self,

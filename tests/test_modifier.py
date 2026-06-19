@@ -59,11 +59,13 @@ def test_patch_by_grep_when_line_unknown(tmp_path: Path) -> None:
     assert "/Start now/i" in source.read_text(encoding="utf-8")
 
 
-def test_backup_and_restore(tmp_path: Path) -> None:
+def test_snapshot_and_restore(tmp_path: Path) -> None:
     source = tmp_path / "x.ts"
     source.write_text("original\n", encoding="utf-8")
     modifier = TestFileModifier()
-    backup = modifier.backup(source)
+    snapshot = modifier.snapshot(source)
     source.write_text("changed\n", encoding="utf-8")
-    modifier.restore(source, backup)
+    modifier.restore(source, snapshot)
     assert source.read_text(encoding="utf-8") == "original\n"
+    # No sidecar backup file is left on disk.
+    assert not list(tmp_path.glob("*.backup_*"))

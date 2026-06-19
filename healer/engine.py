@@ -186,7 +186,7 @@ class HealingEngine:
         if patch is None:
             return report
 
-        backup_path = self.modifier.backup(Path(patch.file_path))
+        original_content = self.modifier.snapshot(Path(patch.file_path))
         self.modifier.apply(patch)
 
         rerun = self.rerunner.rerun(
@@ -199,7 +199,7 @@ class HealingEngine:
             report.status = "healed"
             return report
 
-        self.modifier.restore(Path(patch.file_path), backup_path)
+        self.modifier.restore(Path(patch.file_path), original_content)
         report.status = "restored"
         report.messages.append("Rerun failed; restored original file from backup")
         return report
@@ -208,15 +208,15 @@ class HealingEngine:
         """Apply all prepared patches, then validate with a SINGLE re-run.
 
         Fast path for many distinct broken locators: one re-run instead of N.
-        Each unique file is backed up once (pristine) so multiple patches to the
-        same file restore cleanly. If the single re-run fails, every file is
+        Each unique file is snapshotted once (pristine) so multiple patches to
+        the same file restore cleanly. If the single re-run fails, every file is
         restored and all reports are marked ``restored`` — re-run without batch
         mode to validate (and salvage) each locator individually.
         """
-        backups: dict[str, Path] = {}
+        snapshots: dict[str, str] = {}
         for _, patch in prepared:
-            if patch.file_path not in backups:
-                backups[patch.file_path] = self.modifier.backup(Path(patch.file_path))
+            if patch.file_path not in snapshots:
+                snapshots[patch.file_path] = self.modifier.snapshot(Path(patch.file_path))
             self.modifier.apply(patch)
 
         rerun = self.rerunner.rerun(
@@ -231,8 +231,8 @@ class HealingEngine:
                 report.rerun_output = rerun.output
                 healed.append(patch)
         else:
-            for file_path, backup_path in backups.items():
-                self.modifier.restore(Path(file_path), backup_path)
+            for file_path, content in snapshots.items():
+                self.modifier.restore(Path(file_path), content)
             for report, _ in prepared:
                 report.status = "restored"
                 report.rerun_output = rerun.output
