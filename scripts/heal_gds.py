@@ -42,7 +42,8 @@ def main() -> int:
     from config import settings
     from healer import HealingOrchestrator
 
-    orchestrator = HealingOrchestrator(app_settings=settings)
+    batch = os.getenv("BATCH_VALIDATE", "").lower() in {"1", "true", "yes"}
+    orchestrator = HealingOrchestrator(app_settings=settings, batch_validate=batch)
     result = orchestrator.run()
 
     print("\n================ ORCHESTRATION RESULT ================")
