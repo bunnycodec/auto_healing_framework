@@ -2,17 +2,19 @@ from __future__ import annotations
 
 import json
 import zipfile
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from datetime import datetime
 from pathlib import Path
 
 from ai import AIEngine, create_ai_engine
+from ai.ollama_engine import is_generic_locator, is_valid_locator_expression
 from config import Settings, settings
 
 from .analyser import FailureAnalyser
 from .classifier import locator_signature
 from .detector import FailureDetector
 from .git_pr import GitPrManager
+from .ledger import HealLedger
 from .models import CodePatch, FailureCategory, FailureContext, HealingReport
 from .modifier import TestFileModifier
 from .rerunner import TestRerunner
@@ -49,6 +51,9 @@ class HealingEngine:
         self.analyser = FailureAnalyser(ai_engine)
         self.modifier = TestFileModifier()
         self.rerunner = TestRerunner()
+        self.ledger = HealLedger(
+            self.settings.project_root, max_attempts=self.settings.max_heal_attempts
+        )
 
     # ── Public API ──────────────────────────────────────────────────────────
 
@@ -98,32 +103,74 @@ class HealingEngine:
                 reports.append(self._save_report(duplicate))
                 continue
 
-            if self.batch_validate and not self.dry_run:
-                # Defer validation: prepare the patch and apply it, but don't
-                # re-run yet — a single re-run validates the whole batch below.
-                report, patch = self._prepare(trace_zip, precomputed_failure=failure)
-                if signature:
-                    seen[signature] = report
-                if patch is not None:
-                    prepared.append((report, patch))
-                    reports.append(report)
-                else:
-                    reports.append(self._save_report(report))
+            # Idempotency: stop hammering a locator that has already failed to
+            # heal repeatedly across runs (avoids reopening identical PRs).
+            if self.ledger.should_skip(signature):
+                skipped = HealingReport(
+                    trace_zip=str(trace_zip),
+                    status="skipped",
+                    test_name=failure.test_name,
+                    category=FailureCategory.LOCATOR.value,
+                    confidence=classification.confidence if classification else 0.0,
+                    failure=failure,
+                    messages=[
+                        f"Skipped: locator failed to heal {self.settings.max_heal_attempts}+ "
+                        "times in prior runs (ledger). Needs manual review."
+                    ],
+                )
+                reports.append(skipped)
                 continue
 
-            report = self._heal_single(trace_zip, precomputed_failure=failure)
+            try:
+                if self.batch_validate and not self.dry_run:
+                    # Defer validation: prepare the patch and apply it, but don't
+                    # re-run yet — a single re-run validates the whole batch below.
+                    report, patch = self._prepare(trace_zip, precomputed_failure=failure)
+                    if signature:
+                        seen[signature] = report
+                    if patch is not None:
+                        prepared.append((report, patch))
+                        reports.append(report)
+                    else:
+                        reports.append(self._save_report(report))
+                    continue
+
+                report = self._heal_single(trace_zip, precomputed_failure=failure)
+            except Exception as exc:  # noqa: BLE001 - one bad trace must not abort the batch
+                report = HealingReport(
+                    trace_zip=str(trace_zip),
+                    status="failed",
+                    test_name=failure.test_name,
+                    category=classification.category.value if classification else FailureCategory.UNKNOWN.value,
+                    confidence=classification.confidence if classification else 0.0,
+                    failure=failure,
+                    messages=[f"Healing error: {type(exc).__name__}: {exc}"],
+                )
+                self.ledger.record(signature, "failed")
+                reports.append(self._save_report(report))
+                continue
+
             reports.append(self._save_report(report))
             if signature:
                 seen[signature] = report
+                self.ledger.record(signature, report.status)
             if report.patch and report.status == "healed":
                 patches.append(report.patch)
 
         if prepared:
             patches.extend(self._validate_batch(prepared))
+            for report, _ in prepared:
+                sig = (
+                    locator_signature(report.failure.failed_locator, report.failure.error_message)
+                    if report.failure
+                    else None
+                )
+                self.ledger.record(sig, report.status)
 
         if patches and not self.dry_run and (self.auto_commit or self.auto_pr):
             self._commit(patches, reports)
 
+        self.ledger.save()
         return reports
 
     # ── Core single-trace flow ──────────────────────────────────────────────
@@ -159,6 +206,26 @@ class HealingEngine:
             report.messages.append("AI did not return a locator suggestion")
             return report, None
 
+        # Reject structurally invalid output before it ever touches a file.
+        if not is_valid_locator_expression(suggestion.new_locator):
+            report.messages.append(
+                f"AI returned an invalid locator expression: {suggestion.new_locator!r}"
+            )
+            return report, None
+
+        # Penalise over-broad locators (e.g. getByRole('button') with no name):
+        # they can pass validation by coincidence while weakening the test.
+        if is_generic_locator(suggestion.new_locator):
+            suggestion = replace(suggestion, confidence=min(suggestion.confidence, 0.3))
+            report.suggestion = suggestion
+            report.messages.append("Generic locator suggested; confidence reduced")
+
+        # Effective confidence = weakest link of (is this a locator failure?) and
+        # (is this the right replacement?). This is what the gate enforces.
+        class_conf = classification.confidence if classification else 0.0
+        effective = min(class_conf, suggestion.confidence)
+        report.confidence = round(effective, 3)
+
         patch = self.modifier.build_patch(
             project_root=self.settings.playwright_project_root,
             test_file=failure.test_file,
@@ -171,6 +238,16 @@ class HealingEngine:
 
         report.patch = patch
         report.patched_file = patch.file_path
+
+        # Confidence gate: below the bar we record the suggestion but never apply
+        # it (report-only), so a human can review without any file change.
+        if effective < self.settings.min_confidence:
+            report.status = "low_confidence"
+            report.messages.append(
+                f"[REPORT-ONLY] effective confidence {effective:.0%} below "
+                f"threshold {self.settings.min_confidence:.0%}; not applied"
+            )
+            return report, None
 
         if self.dry_run:
             report.status = "skipped"
@@ -189,9 +266,12 @@ class HealingEngine:
         original_content = self.modifier.snapshot(Path(patch.file_path))
         self.modifier.apply(patch)
 
+        command = self.settings.targeted_command(
+            [(report.failure.test_file, report.failure.line_number)] if report.failure else []
+        )
         rerun = self.rerunner.rerun(
             project_root=self.settings.project_root,
-            command=self.settings.test_command,
+            command=command,
         )
         report.rerun_output = rerun.output
 
@@ -219,9 +299,14 @@ class HealingEngine:
                 snapshots[patch.file_path] = self.modifier.snapshot(Path(patch.file_path))
             self.modifier.apply(patch)
 
+        targets = [
+            (report.failure.test_file, report.failure.line_number)
+            for report, _ in prepared
+            if report.failure
+        ]
         rerun = self.rerunner.rerun(
             project_root=self.settings.project_root,
-            command=self.settings.test_command,
+            command=self.settings.targeted_command(targets),
         )
 
         healed: list[CodePatch] = []
@@ -277,5 +362,19 @@ class HealingEngine:
         run_dir.mkdir(parents=True, exist_ok=True)
         stem = Path(report.trace_zip).parent.name or Path(report.trace_zip).stem
         report_path = run_dir / f"{stem}.json"
-        report_path.write_text(json.dumps(asdict(report), indent=2, default=str), encoding="utf-8")
+        report_path.write_text(
+            json.dumps(self._serialize(report), indent=2, default=str), encoding="utf-8"
+        )
         return report
+
+    def _serialize(self, report: HealingReport) -> dict:
+        """Serialize a report, redacting bulky/sensitive trace data by default."""
+        data = asdict(report)
+        failure = data.get("failure")
+        if isinstance(failure, dict):
+            if not self.settings.save_dom_in_reports:
+                failure["dom_chunk"] = ""
+            message = failure.get("error_message") or ""
+            if len(message) > 2000:
+                failure["error_message"] = message[:2000] + "…[truncated]"
+        return data

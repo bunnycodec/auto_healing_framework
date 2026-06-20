@@ -22,6 +22,12 @@ test_command: "{test_command}"
 results_dir: test-results    # where the framework writes trace.zip files
 workers: 4
 
+# --- Healing safety / governance ---
+min_confidence: 0.7          # apply + commit only at/above this confidence; below = report-only
+targeted_validation: true    # validate by re-running only the failing spec (falls back to full run)
+save_dom_in_reports: false   # keep DOM out of persisted reports (avoid leaking page data)
+max_heal_attempts: 3         # stop re-attempting a locator that keeps failing to heal
+
 ai:
   mode: rule                 # rule | azure-openai | ollama | kilo
 
@@ -40,6 +46,7 @@ def _print_report(report: HealingReport) -> None:
     icon = {
         "healed": "[healed]",
         "restored": "[restored]",
+        "low_confidence": "[report-only]",
         "skipped": "[skipped]",
         "duplicate": "[duplicate]",
         "failed": "[failed]",
@@ -59,12 +66,14 @@ def _summary(reports: list[HealingReport]) -> int:
     healed = sum(1 for r in reports if r.status == "healed")
     skipped = sum(1 for r in reports if r.status == "skipped")
     duplicate = sum(1 for r in reports if r.status == "duplicate")
+    low_conf = sum(1 for r in reports if r.status == "low_confidence")
     failed = sum(1 for r in reports if r.status in {"failed", "restored"})
     print("\nHealing Summary")
-    print(f"  healed:     {healed}")
-    print(f"  duplicate:  {duplicate}")
-    print(f"  skipped:    {skipped}")
-    print(f"  failed:     {failed}")
+    print(f"  healed:       {healed}")
+    print(f"  duplicate:    {duplicate}")
+    print(f"  report-only:  {low_conf}")
+    print(f"  skipped:      {skipped}")
+    print(f"  failed:       {failed}")
     return 0 if failed == 0 else 1
 
 

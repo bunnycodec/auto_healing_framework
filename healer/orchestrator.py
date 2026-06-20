@@ -63,6 +63,8 @@ class HealingOrchestrator:
         return OrchestrationResult(tests_passed=False, traces_found=len(traces), reports=reports)
 
     def _run_tests(self) -> bool:
+        # SECURITY: test_command is trusted project config (healer.yml / env),
+        # not untrusted input, so shell=True is acceptable.
         completed = subprocess.run(
             self.settings.test_command,
             cwd=self.settings.project_root,

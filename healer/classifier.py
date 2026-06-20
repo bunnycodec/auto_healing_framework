@@ -5,20 +5,15 @@ import re
 from .models import FailureCategory, FailureClassification
 
 
-# Patterns that strongly indicate a locator / element-resolution failure.
-LOCATOR_PATTERNS = (
+# Patterns that strongly indicate the element could not be resolved at all -
+# i.e. real locator drift. High confidence: healing is the right action.
+STRONG_LOCATOR_PATTERNS = (
     "waiting for selector",
     "waiting for locator",
     "no element matches selector",
     "element not found",
     "locator resolved to",
     "strict mode violation",
-    "element is not visible",
-    "element is not enabled",
-    "element is not stable",
-    "element is outside of the viewport",
-    "frame was detached",
-    "element is detached",
     "selector resolved to hidden",
     "error: locator",
     "timeouterror: locator",
@@ -27,6 +22,19 @@ LOCATOR_PATTERNS = (
     "locator.waitfor",
     "waiting for get",
     "element does not have",
+)
+
+# Patterns where the element was likely found but in a transient state. These
+# are frequently timing/animation/overlay flakes, NOT locator drift - rewriting
+# the locator can mask a real bug, so they get low confidence and the engine's
+# confidence gate holds them as report-only unless the threshold is lowered.
+WEAK_LOCATOR_PATTERNS = (
+    "element is not visible",
+    "element is not enabled",
+    "element is not stable",
+    "element is outside of the viewport",
+    "frame was detached",
+    "element is detached",
 )
 
 NETWORK_PATTERNS = (
@@ -72,11 +80,21 @@ class FailureClassifier:
                 reason="No error message available in trace data",
             )
 
-        if self._matches(error, LOCATOR_PATTERNS):
+        if self._matches(error, STRONG_LOCATOR_PATTERNS):
             return FailureClassification(
                 category=FailureCategory.LOCATOR,
                 confidence=0.95,
                 reason=f"Locator failure detected for selector: {failed_locator or 'unknown'}",
+            )
+
+        if self._matches(error, WEAK_LOCATOR_PATTERNS):
+            return FailureClassification(
+                category=FailureCategory.LOCATOR,
+                confidence=0.55,
+                reason=(
+                    "Element resolved but was in a transient state "
+                    f"(possible timing flake, not drift): {failed_locator or 'unknown'}"
+                ),
             )
 
         has_selector_timeout = bool(failed_locator) and (

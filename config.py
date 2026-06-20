@@ -32,6 +32,21 @@ class Settings:
     results_dir_name: str = "test-results"
     workers: int | None = None
 
+    # --- Healing safety / governance ---
+    # A heal is only applied + committed when its effective confidence
+    # (min of "is this a locator failure" and "is this the right new locator")
+    # meets this bar. Below it, the suggestion is still recorded (report-only).
+    min_confidence: float = 0.7
+    # Validate a heal by re-running only the failing spec (file:line) instead of
+    # the whole suite. Falls back to a full run when the failing file is not a
+    # recognisable spec (e.g. a page object), so it never targets a non-test.
+    targeted_validation: bool = True
+    # Persisted reports omit the (large, potentially sensitive) DOM chunk by
+    # default; enable only when debugging locally.
+    save_dom_in_reports: bool = False
+    # Stop re-attempting a locator signature after this many failed heals.
+    max_heal_attempts: int = 3
+
     # --- AI provider ---
     ai_mode: str = "rule"
     ollama_model: str = "qwen3:8b"
@@ -57,6 +72,33 @@ class Settings:
     def playwright_project_root(self) -> Path:
         """Backward-compatible alias for ``project_root``."""
         return self.project_root
+
+    def targeted_command(self, targets: list[tuple[Path | None, int | None]]) -> str:
+        """Build a command that re-runs only the failing spec(s).
+
+        Returns the full ``test_command`` unchanged when targeting is disabled,
+        the framework isn't supported, or any target is not a recognisable spec
+        file — guaranteeing we never hand the runner a non-test path (which
+        Playwright would treat as "no tests found" and fail).
+        """
+        if not self.targeted_validation or self.framework != "playwright" or not targets:
+            return self.test_command
+
+        specs: list[str] = []
+        for test_file, line in targets:
+            if not test_file or not _is_spec_file(Path(test_file)):
+                return self.test_command
+            path = Path(test_file)
+            try:
+                token = str(path.resolve().relative_to(self.project_root))
+            except ValueError:
+                token = str(path)
+            token = token.replace("\\", "/")
+            if line:
+                token = f"{token}:{line}"
+            specs.append(token)
+
+        return f"{self.test_command} {' '.join(specs)}"
 
 
 # ── Loading ──────────────────────────────────────────────────────────────────
@@ -93,6 +135,29 @@ def _first(*values: object) -> object | None:
     return None
 
 
+_SPEC_RE = __import__("re").compile(r"\.(spec|test)\.[cm]?[jt]sx?$", __import__("re").I)
+_NON_SPEC_HINTS = (".page.", ".po.", ".pom.", ".fixture", ".helper", ".util")
+
+
+def _is_spec_file(path: Path) -> bool:
+    """Heuristic: does this path look like an executable test spec (not a POM)?"""
+    name = path.name.lower()
+    if any(hint in name for hint in _NON_SPEC_HINTS):
+        return False
+    if _SPEC_RE.search(name):
+        return True
+    parts = {part.lower() for part in path.parts}
+    return bool(parts & {"tests", "test", "e2e", "specs", "spec"})
+
+
+def _as_bool(value: object, default: bool) -> bool:
+    if value is None or value == "":
+        return default
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().lower() in {"1", "true", "yes", "on"}
+
+
 def load_settings(start_dir: Path | None = None) -> Settings:
     """Resolve Settings from env vars, an optional ``healer.yml``, then defaults."""
     config_path = find_config_file(start_dir)
@@ -127,6 +192,9 @@ def load_settings(start_dir: Path | None = None) -> Settings:
     reports_value = _first(os.getenv("REPORTS_DIR"), data.get("reports_dir"), "reports")
     temp_value = _first(os.getenv("HEALER_TEMP_DIR"), data.get("temp_dir"), "trace-output")
 
+    min_conf_value = _first(os.getenv("MIN_CONFIDENCE"), data.get("min_confidence"), 0.7)
+    max_attempts_value = _first(os.getenv("MAX_HEAL_ATTEMPTS"), data.get("max_heal_attempts"), 3)
+
     return Settings(
         project_root=project_root,
         framework=str(_first(os.getenv("FRAMEWORK"), data.get("framework"), "playwright")),
@@ -142,6 +210,14 @@ def load_settings(start_dir: Path | None = None) -> Settings:
             _first(os.getenv("RESULTS_DIR"), data.get("results_dir"), "test-results")
         ),
         workers=workers,
+        min_confidence=float(min_conf_value),
+        targeted_validation=_as_bool(
+            _first(os.getenv("TARGETED_VALIDATION"), data.get("targeted_validation")), True
+        ),
+        save_dom_in_reports=_as_bool(
+            _first(os.getenv("SAVE_DOM_IN_REPORTS"), data.get("save_dom_in_reports")), False
+        ),
+        max_heal_attempts=int(max_attempts_value),
         ai_mode=str(_first(os.getenv("AI_MODE"), ai_section.get("mode"), data.get("ai_mode"), "rule")),
         ollama_model=str(_first(os.getenv("OLLAMA_MODEL"), ai_section.get("ollama_model"), "qwen3:8b")),
         ollama_url=str(

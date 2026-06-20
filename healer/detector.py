@@ -49,6 +49,7 @@ class FailureDetector:
         dom_chunk = self._build_dom_context(error_message, extract_dir, failed_locator)
         test_name = self._derive_test_name(trace_zip)
         classification = self.classifier.classify(error_message, failed_locator)
+        feature, scenario, step, step_keyword = self._extract_bdd_context(extract_dir)
 
         return FailureContext(
             trace_zip=trace_zip,
@@ -59,6 +60,10 @@ class FailureDetector:
             dom_chunk=dom_chunk,
             test_name=test_name,
             classification=classification,
+            feature=feature,
+            scenario=scenario or test_name,
+            step=step,
+            step_keyword=step_keyword,
         )
 
     def _read_error_context(self, trace_zip: Path, extract_dir: Path) -> str:
@@ -249,6 +254,98 @@ class FailureDetector:
     @staticmethod
     def _clean(text: str) -> str:
         return ANSI_RE.sub("", text)
+
+    # ── BDD / Gherkin context ────────────────────────────────────────────────
+
+    def _extract_bdd_context(self, extract_dir: Path) -> tuple[str, str, str, str]:
+        """Recover (feature, scenario, step text, step keyword) from the trace.
+
+        Playwright-BDD records the scenario as the context-options ``title``
+        (``spec:line \u203a Feature \u203a Scenario``) and wraps each Gherkin step in a
+        ``test.step`` action. The failing step is the nearest ``test.step``
+        ancestor of the action that errored. Returns empty strings for
+        non-BDD suites so plain Playwright tests are unaffected.
+        """
+        scenario_title = ""
+        before_map: dict[str, tuple[str | None, str | None, str]] = {}
+        failing_callids: list[str] = []
+
+        for trace_file in sorted(extract_dir.rglob("*.trace")):
+            try:
+                content = trace_file.read_text(encoding="utf-8", errors="ignore")
+            except OSError:
+                continue
+            for line in content.splitlines():
+                if (
+                    '"context-options"' not in line
+                    and '"before"' not in line
+                    and '"after"' not in line
+                ):
+                    continue
+                try:
+                    event = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                etype = event.get("type")
+                if etype == "context-options":
+                    scenario_title = scenario_title or str(event.get("title", ""))
+                elif etype == "before":
+                    call_id = event.get("callId")
+                    if call_id:
+                        before_map[call_id] = (
+                            event.get("parentId"),
+                            event.get("method"),
+                            str(event.get("title", "")),
+                        )
+                elif etype == "after" and isinstance(event.get("error"), dict):
+                    call_id = event.get("callId")
+                    if call_id:
+                        failing_callids.append(call_id)
+
+        feature, scenario = self._split_scenario_title(self._clean(scenario_title))
+        step = self._resolve_failing_step(before_map, failing_callids)
+        keyword, step_text = self._split_step(self._clean(step))
+        return feature, scenario, step_text, keyword
+
+    @staticmethod
+    def _split_scenario_title(title: str) -> tuple[str, str]:
+        """Split ``spec:line \u203a Feature \u203a Scenario`` into (feature, scenario)."""
+        if not title:
+            return "", ""
+        parts = [part.strip() for part in title.split("\u203a") if part.strip()]
+        # Drop the leading "file:line" location segment when present.
+        if parts and re.search(r"\.(spec|test|feature)\b", parts[0], re.I):
+            parts = parts[1:]
+        if len(parts) >= 2:
+            return parts[0], parts[-1]
+        return ("", parts[0]) if parts else ("", "")
+
+    @staticmethod
+    def _resolve_failing_step(
+        before_map: dict[str, tuple[str | None, str | None, str]],
+        failing_callids: list[str],
+    ) -> str:
+        """Walk up from each failed action to its enclosing ``test.step`` title."""
+        for call_id in failing_callids:
+            node: str | None = call_id
+            seen: set[str] = set()
+            while node and node not in seen:
+                seen.add(node)
+                parent, method, title = before_map.get(node, (None, None, ""))
+                if method == "test.step" and title:
+                    return title
+                node = parent
+        return ""
+
+    @staticmethod
+    def _split_step(step: str) -> tuple[str, str]:
+        """Separate a Gherkin keyword (Given/When/Then/And/But) from its text."""
+        if not step:
+            return "", ""
+        match = re.match(r"\s*(Given|When|Then|And|But)\b\s*(.*)", step, re.I)
+        if match:
+            return match.group(1).title(), match.group(2).strip()
+        return "", step.strip()
 
 
 

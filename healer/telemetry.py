@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 
-HEAL_STATUSES = {"healed", "restored", "skipped", "duplicate", "failed"}
+HEAL_STATUSES = {"healed", "restored", "low_confidence", "skipped", "duplicate", "failed"}
 
 
 def load_reports(reports_dir: Path) -> list[dict[str, Any]]:
@@ -130,14 +130,23 @@ def compute_metrics(reports_dir: Path) -> dict[str, Any]:
 
 def _summarize(report: dict[str, Any]) -> dict[str, Any]:
     suggestion = report.get("suggestion") or {}
+    if not isinstance(suggestion, dict):
+        suggestion = {}
+    failure = report.get("failure") or {}
+    if not isinstance(failure, dict):
+        failure = {}
     return {
         "created_at": report.get("created_at", ""),
         "test_name": report.get("test_name", ""),
         "status": report.get("status", ""),
         "category": report.get("category", ""),
-        "old_locator": suggestion.get("old_locator") if isinstance(suggestion, dict) else None,
-        "new_locator": suggestion.get("new_locator") if isinstance(suggestion, dict) else None,
-        "confidence": suggestion.get("confidence") if isinstance(suggestion, dict) else None,
+        "feature": failure.get("feature") or "",
+        "scenario": failure.get("scenario") or report.get("test_name", ""),
+        "step": failure.get("step") or "",
+        "step_keyword": failure.get("step_keyword") or "",
+        "old_locator": suggestion.get("old_locator") or failure.get("failed_locator"),
+        "new_locator": suggestion.get("new_locator"),
+        "confidence": suggestion.get("confidence"),
         "patched_file": report.get("patched_file"),
         "pr_url": report.get("pr_url"),
     }

@@ -179,3 +179,70 @@ def make_corrupted_trace(work_dir: Path, *, folder: str = "corrupted-trace") -> 
             "<html><body><main><button>Start now</button></main></body></html>",
         )
     return trace_zip
+
+
+def make_bdd_trace(work_dir: Path, *, folder: str = "bdd-start-button") -> Path:
+    """Create a trace.zip carrying playwright-bdd scenario + step metadata.
+
+    Used to verify the detector recovers the Gherkin feature, scenario and the
+    failing step from the trace's ``context-options`` title and ``test.step``
+    action events.
+    """
+    import json
+
+    project_root = work_dir / "playwright-tests"
+    tests_dir = project_root / "tests"
+    tests_dir.mkdir(parents=True, exist_ok=True)
+
+    test_file = tests_dir / "landing.page.ts"
+    test_file.write_text(
+        "export class LandingPage {\n"
+        "  get startNowButton() {\n"
+        "    return this.page.getByRole('button', { name: /Start new/i });\n"
+        "  }\n"
+        "}\n",
+        encoding="utf-8",
+    )
+
+    trace_dir = work_dir / "test-results" / folder
+    trace_dir.mkdir(parents=True, exist_ok=True)
+
+    error_context = trace_dir / "error-context.md"
+    error_context.write_text(
+        "TimeoutError: locator.click: Timeout 10000ms exceeded.\n"
+        "Call log:\n"
+        "  - waiting for getByRole('button', { name: /Start new/i })\n\n"
+        f"    at Object.<anonymous> ({test_file}:3:36)\n",
+        encoding="utf-8",
+    )
+
+    lines = [
+        {
+            "type": "context-options",
+            "title": (
+                "tests\\features\\01-landing-page.feature.spec.js:25 "
+                "\u203a Landing Page \u2014 Benefit Selection "
+                "\u203a Starting a Universal Credit application navigates to personal details"
+            ),
+        },
+        {"type": "before", "callId": "test.step@48", "parentId": "hook@2",
+         "method": "test.step", "title": "When I click start now"},
+        {"type": "before", "callId": "call@60", "parentId": "test.step@48",
+         "method": "click", "title": "Click"},
+        {"type": "after", "callId": "call@60", "error": {
+            "message": "TimeoutError: locator.click: Timeout 10000ms exceeded.\n"
+            "  - waiting for getByRole('button', { name: /Start new/i })",
+            "stack": f"    at LandingPage.start ({test_file}:3:36)\n",
+        }},
+    ]
+
+    trace_zip = trace_dir / "trace.zip"
+    with zipfile.ZipFile(trace_zip, "w") as archive:
+        archive.writestr(
+            "0-trace.trace", "\n".join(json.dumps(line) for line in lines) + "\n"
+        )
+        archive.writestr(
+            "resources/snapshot.html",
+            "<html><body><main><button>Start now</button></main></body></html>",
+        )
+    return trace_zip

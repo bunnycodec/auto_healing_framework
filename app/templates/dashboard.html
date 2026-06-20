@@ -132,6 +132,7 @@
       .s-healed { background: rgba(63,185,80,.18); color: var(--apollo-status-healed); }
       .s-failed, .s-restored { background: rgba(248,81,73,.18); color: var(--apollo-status-failed); }
       .s-duplicate { background: rgba(210,153,34,.18); color: var(--apollo-status-duplicate); }
+      .s-low_confidence { background: rgba(163,113,247,.18); color: var(--apollo-status-pr); }
       .empty { color: var(--apollo-text-muted); padding: var(--apollo-space-4) 0; }
       .runs .run-row { cursor: pointer; }
       .runs .run-row:hover { background: var(--apollo-surface-overlay); }
@@ -139,6 +140,42 @@
       .run-detail > td { padding: 0; }
       .run-detail table { background: var(--apollo-surface-canvas); }
       .run-detail th, .run-detail td { padding-left: var(--apollo-space-4); }
+
+      /* ── Healing event list (scenario · step · locators) ──────────────── */
+      .events { display: flex; flex-direction: column; }
+      .event { display: grid; grid-template-columns: 4px 1fr; gap: 0 var(--apollo-space-3);
+        padding: var(--apollo-space-3) var(--apollo-space-4);
+        border-bottom: 1px solid var(--apollo-border-subtle); }
+      .event:last-child { border-bottom: 0; }
+      .event .rail { border-radius: var(--apollo-radius-pill); background: var(--apollo-border-subtle); }
+      .event.ev-healed .rail { background: var(--apollo-status-healed); }
+      .event.ev-failed .rail, .event.ev-restored .rail { background: var(--apollo-status-failed); }
+      .event.ev-duplicate .rail { background: var(--apollo-status-duplicate); }
+      .event.ev-low_confidence .rail { background: var(--apollo-status-pr); }
+      .ev-body { min-width: 0; display: flex; flex-direction: column; gap: var(--apollo-space-2); }
+      .ev-head { display: flex; align-items: baseline; gap: var(--apollo-space-2); flex-wrap: wrap; }
+      .ev-scenario { font-weight: var(--apollo-font-weight-medium); font-size: var(--apollo-font-size-md);
+        color: var(--apollo-text-default); }
+      .ev-feature { font-size: var(--apollo-font-size-xs); color: var(--apollo-text-muted); }
+      .ev-conf { margin-left: auto; font-size: var(--apollo-font-size-xs); color: var(--apollo-text-muted);
+        white-space: nowrap; font-variant-numeric: tabular-nums; }
+      .ev-step { display: flex; align-items: center; gap: var(--apollo-space-2); font-size: var(--apollo-font-size-sm); }
+      .ev-step .txt { color: var(--apollo-text-default); }
+      .ev-step .muted { color: var(--apollo-text-muted); font-style: italic; }
+      .kw { font-size: var(--apollo-font-size-xs); font-weight: var(--apollo-font-weight-bold);
+        letter-spacing: .04em; text-transform: uppercase; padding: 1px var(--apollo-space-2);
+        border-radius: var(--apollo-radius-sm); background: var(--apollo-surface-overlay); color: var(--apollo-text-muted); }
+      .kw-given { color: var(--apollo-color-azure-400); }
+      .kw-when { color: var(--apollo-color-violet-400); }
+      .kw-then { color: var(--apollo-color-emerald-400); }
+      .ev-loc { display: flex; align-items: center; gap: var(--apollo-space-2); flex-wrap: wrap;
+        font-size: var(--apollo-font-size-xs); }
+      .ev-loc .arrow { color: var(--apollo-text-muted); }
+      .ev-loc code { background: var(--apollo-surface-overlay); padding: var(--apollo-space-1) var(--apollo-space-2);
+        border-radius: var(--apollo-radius-sm); word-break: break-all; max-width: 100%; }
+      .ev-loc code.before { background: rgba(248,81,73,.14); color: var(--apollo-status-failed); }
+      .ev-loc code.after { background: rgba(63,185,80,.14); color: var(--apollo-status-healed); }
+      .ev-loc .nochange { color: var(--apollo-text-muted); }
     </style>
   </head>
   <body>
@@ -160,18 +197,46 @@
 
       function card(label, value){ return `<div class="card"><div class="label">${label}</div><div class="value">${value}</div></div>`; }
 
+      function statusLabel(s){
+        return s === 'low_confidence' ? 'report-only' : s;
+      }
+
+      function kwBadge(kw){
+        if(!kw) return '';
+        return `<span class="kw kw-${escapeHtml(kw.toLowerCase())}">${escapeHtml(kw)}</span>`;
+      }
+
+      function eventCard(r){
+        const status = r.status || 'unknown';
+        const scenario = r.scenario || r.test_name || '—';
+        const conf = r.confidence != null ? Math.round(r.confidence*100)+'% confidence' : '';
+        const stepInner = r.step
+          ? `${kwBadge(r.step_keyword)}<span class="txt">${escapeHtml(r.step)}</span>`
+          : `<span class="muted">step not captured</span>`;
+        const locators = (r.old_locator || r.new_locator)
+          ? `<div class="ev-loc">
+               ${r.old_locator ? `<code class="before">${escapeHtml(r.old_locator)}</code>` : ''}
+               ${r.new_locator ? `<span class="arrow">→</span><code class="after">${escapeHtml(r.new_locator)}</code>` : ''}
+             </div>`
+          : `<div class="ev-loc"><span class="nochange">${escapeHtml(r.category || 'no locator change')}</span></div>`;
+        return `<div class="event ev-${status}">
+            <div class="rail"></div>
+            <div class="ev-body">
+              <div class="ev-head">
+                <span class="pill s-${status}">${escapeHtml(statusLabel(status))}</span>
+                <span class="ev-scenario">${escapeHtml(scenario)}</span>
+                ${r.feature ? `<span class="ev-feature">${escapeHtml(r.feature)}</span>` : ''}
+                ${conf ? `<span class="ev-conf">${conf}</span>` : ''}
+              </div>
+              <div class="ev-step">${stepInner}</div>
+              ${locators}
+            </div>
+          </div>`;
+      }
+
       function eventsTable(events){
         if(!events || !events.length){ return '<div class="empty">No events</div>'; }
-        return `<table><thead><tr>
-            <th>Time</th><th>Test</th><th>Status</th><th>Before</th><th>After</th><th>Conf.</th></tr></thead><tbody>` +
-          events.map(r => `<tr>
-              <td>${(r.created_at||'').slice(11,19) || '—'}</td>
-              <td>${escapeHtml(r.test_name || '—')}</td>
-              <td><span class="pill s-${r.status}">${r.status}</span></td>
-              <td>${r.old_locator ? `<code class="before">${escapeHtml(r.old_locator)}</code>` : '<span style="color:var(--apollo-text-muted)">'+escapeHtml(r.category||'—')+'</span>'}</td>
-              <td>${r.new_locator ? `<code class="after">${escapeHtml(r.new_locator)}</code>` : '—'}</td>
-              <td>${r.confidence != null ? Math.round(r.confidence*100)+'%' : '—'}</td>
-            </tr>`).join('') + `</tbody></table>`;
+        return `<div class="events">` + events.map(eventCard).join('') + `</div>`;
       }
 
       function renderRuns(runs){
@@ -204,10 +269,12 @@
       function escapeHtml(s){ return (s||'').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
 
       function render(m){
+        const reportOnly = (m.status_breakdown && m.status_breakdown.low_confidence) || 0;
         document.getElementById('cards').innerHTML =
           card('Heal rate', Math.round((m.heal_rate||0)*100)+'%') +
           card('Healed', m.healed||0) +
           card('Failed', m.failed||0) +
+          card('Report-only', reportOnly) +
           card('Avg confidence', Math.round((m.avg_confidence||0)*100)+'%') +
           card('Runs', m.total_runs||0);
         renderRuns(m.runs);

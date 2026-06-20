@@ -3,9 +3,8 @@ from __future__ import annotations
 import json
 import re
 
-import requests
-
 from .base import AIEngine, LocatorSuggestion
+from .http import post_json
 from .ollama_engine import build_locator_prompt, sanitize_locator
 
 
@@ -35,7 +34,7 @@ class AzureOpenAIEngine(AIEngine):
             f"{self.endpoint}/openai/deployments/{self.deployment}"
             f"/chat/completions?api-version={self.api_version}"
         )
-        response = requests.post(
+        payload = post_json(
             url,
             headers={"api-key": self.api_key, "Content-Type": "application/json"},
             json={
@@ -50,8 +49,6 @@ class AzureOpenAIEngine(AIEngine):
             },
             timeout=120,
         )
-        response.raise_for_status()
-        payload = response.json()
         content = payload.get("choices", [{}])[0].get("message", {}).get("content", "")
         return parse_locator_response(content, failed_locator)
 

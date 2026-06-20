@@ -44,6 +44,11 @@ class FailureContext:
     dom_chunk: str = ""
     test_name: str = ""
     classification: FailureClassification | None = None
+    # BDD context recovered from the Playwright trace (empty for non-BDD suites).
+    feature: str = ""
+    scenario: str = ""
+    step: str = ""
+    step_keyword: str = ""
 
 
 @dataclass
@@ -58,7 +63,7 @@ class CodePatch:
 @dataclass
 class HealingReport:
     trace_zip: str
-    status: str  # healed | restored | skipped | duplicate | failed
+    status: str  # healed | restored | low_confidence | skipped | duplicate | failed
     test_name: str = ""
     category: str = FailureCategory.UNKNOWN.value
     confidence: float = 0.0

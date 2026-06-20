@@ -14,6 +14,9 @@ class RerunResult:
 
 class TestRerunner:
     def rerun(self, *, project_root: Path, command: str) -> RerunResult:
+        # SECURITY: `command` comes from trusted project config (healer.yml /
+        # TEST_COMMAND env), never from untrusted/network input, so shell=True
+        # is acceptable here. Do not pass user-/page-derived data into it.
         completed = subprocess.run(
             command,
             cwd=project_root,

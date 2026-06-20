@@ -10,6 +10,23 @@ from healer.models import FailureCategory
 from ._fixtures import make_corrupted_trace, make_settings
 
 
+def test_detector_extracts_bdd_scenario_and_step(tmp_path: Path) -> None:
+    """Scenario, feature and the failing Gherkin step come from the trace."""
+    from ._fixtures import make_bdd_trace
+
+    make_settings(tmp_path)
+    trace_zip = make_bdd_trace(tmp_path)
+
+    context = FailureDetector().from_trace(trace_zip, tmp_path / "trace-output")
+
+    assert context.feature == "Landing Page — Benefit Selection"
+    assert context.scenario == (
+        "Starting a Universal Credit application navigates to personal details"
+    )
+    assert context.step_keyword == "When"
+    assert context.step == "I click start now"
+
+
 def test_detector_falls_back_to_trace_action_log(tmp_path: Path) -> None:
     """When error-context.md is corrupted, the detector must recover the real
     locator + source location from the trace action log."""

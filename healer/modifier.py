@@ -44,12 +44,20 @@ class TestFileModifier:
         """Resolve the exact source location of the broken locator.
 
         Strategy 1: use the line number extracted from the stack trace.
-        Strategy 2: grep the project for the full locator expression.
+        Strategy 2: search the *same* failing file for the locator expression.
+        Strategy 3 (last resort): grep the project, only when no failing file is
+        known. Scoping to the failing file first avoids patching an identical
+        locator string that legitimately lives in a different test.
         """
         if test_file and line_number:
             patch = self._patch_from_line(test_file, line_number, suggestion)
             if patch:
                 return patch
+        if test_file and test_file.exists():
+            patch = self._patch_in_file(test_file, suggestion)
+            if patch:
+                return patch
+            return None
         return self._patch_by_grep(project_root, suggestion)
 
     def apply(self, patch: CodePatch) -> None:
@@ -94,21 +102,31 @@ class TestFileModifier:
             return None
 
         for source_file in self._collect_sources(project_root):
-            try:
-                lines = source_file.read_text(encoding="utf-8").splitlines()
-            except (OSError, UnicodeDecodeError):
-                continue
-            for idx, original in enumerate(lines):
-                if old in original:
-                    patched = original.replace(old, suggestion.new_locator, 1)
-                    if patched != original:
-                        return CodePatch(
-                            file_path=str(source_file),
-                            line_number=idx + 1,
-                            original_line=original,
-                            patched_line=patched,
-                            suggestion=suggestion,
-                        )
+            patch = self._patch_in_file(source_file, suggestion)
+            if patch:
+                return patch
+        return None
+
+    def _patch_in_file(self, source_file: Path, suggestion: LocatorSuggestion) -> CodePatch | None:
+        """Replace the first occurrence of the broken locator within one file."""
+        old = suggestion.old_locator
+        if not old or len(old) <= 8 or old.startswith("internal:"):
+            return None
+        try:
+            lines = source_file.read_text(encoding="utf-8").splitlines()
+        except (OSError, UnicodeDecodeError):
+            return None
+        for idx, original in enumerate(lines):
+            if old in original:
+                patched = original.replace(old, suggestion.new_locator, 1)
+                if patched != original:
+                    return CodePatch(
+                        file_path=str(source_file),
+                        line_number=idx + 1,
+                        original_line=original,
+                        patched_line=patched,
+                        suggestion=suggestion,
+                    )
         return None
 
     def _collect_sources(self, directory: Path):

@@ -1,7 +1,7 @@
 # Hand-off: AI Auto-Healing Framework
 
 > Pick-up document for continuing work on the Python/FastAPI auto-healer.
-> Last updated: 2026-06-19
+> Last updated: 2026-06-20
 
 ## TL;DR
 
@@ -10,6 +10,11 @@ suite, reads the failure `trace.zip`, asks an LLM for the corrected locator, pat
 source file (line-precise), re-runs to validate, and reports the result. It replaced an
 earlier TypeScript version (now removed).
 
+The heal loop is now **governance-gated** (confidence threshold, locator validity,
+generic-locator penalty, cross-run idempotency ledger), validates fixes by re-running
+**only the failing spec** where possible, and the dashboard surfaces the failing
+**Gherkin feature → scenario → step** alongside the before/after locator.
+
 - **Repo:** `bunnycodec/auto_healing_framework`
 - **Working branch:** `feat/python-auto-healer` (open PR **#2** → `main`)
 - **This dir:** `C:\Users\Lokesh-PC\copilot-worktrees\auto_healing_framework\376805-cgcp-didactic-robot`
@@ -17,11 +22,12 @@ earlier TypeScript version (now removed).
 
 ## Status: working
 
-- `pytest` → 13 passed
+- `pytest` → **41 passed** (added `tests/test_gaps.py`, BDD detector test)
 - Deterministic `self_test.py` → passes (no AI needed)
-- FastAPI `/health`, `/reports` → ok
-- End-to-end Azure OpenAI healing verified on the GDS framework for **landing,
-  personal-details (Step 1), and contact-information (Step 2)** pages.
+- FastAPI `/health`, `/reports`, `/metrics`, `/metrics/stream` → ok
+- End-to-end Azure OpenAI healing re-verified on the GDS framework: broke the
+  landing **Start now** button, healed `name: 'Begin application'` → `name: /Start now/i`
+  at 98% confidence; dashboard showed the full scenario/step chain.
 
 ## Setup
 
@@ -100,12 +106,12 @@ $env:TEST_COMMAND = "npm run test:smoke -- --trace on --workers 15"
 ## Architecture
 
 ```
-app/        FastAPI service + dashboard (routes: /run, /heal-directory, /orchestrate, /reports, /health)
-ai/         Pluggable engines: rule, azure-openai, ollama, kilo (factory.py picks via AI_MODE)
-healer/     detector, classifier, analyser, modifier, rerunner, git_pr, engine, orchestrator
-config.py   Settings from environment / .env
+app/        FastAPI service + dashboard (routes: /run, /heal-directory, /orchestrate, /reports, /metrics, /health)
+ai/         Pluggable engines: rule, azure-openai, ollama, kilo (factory.py picks via AI_MODE); http.py = retry/backoff
+healer/     detector, classifier, analyser, modifier, rerunner, git_pr, engine, orchestrator, ledger, telemetry
+config.py   Settings from environment / .env (incl. min_confidence, targeted_validation, max_heal_attempts)
 scripts/    heal_gds.py, self_test.py, fastapi_ai_demo.py
-tests/      pytest suite (classifier, modifier, engine, detector)
+tests/      pytest suite (classifier, modifier, engine, detector, config, telemetry, gaps)
 ```
 
 Pipeline: `orchestrator.run()` → run tests → collect fresh `trace.zip` files →
@@ -130,8 +136,10 @@ restore-on-fail → JSON report → optional git/PR.
    many tests fail on one broken locator; only ONE trace goes to the LLM, the rest are
    reported as `duplicate`. Expect `healed: 1, duplicate/skipped: N` for a single break.
 
-4. **Safe patching** (`healer/modifier.py`): line-precise edit with a project-wide grep
-   fallback, timestamped backup, and automatic restore if the re-run fails. A `restored`
+4. **Safe patching** (`healer/modifier.py`): line-precise edit; if the stack line
+   doesn't match, it searches **only the failing file** for the locator (the
+   project-wide grep is a last resort used only when no failing file is known).
+   In-memory snapshot + automatic restore if the re-run fails. A `restored`
    status means the AI's suggestion didn't pass validation (not a crash).
 
 5. **AI response sanitising** (`ai/ollama_engine.sanitize_locator`): models sometimes
@@ -141,15 +149,53 @@ restore-on-fail → JSON report → optional git/PR.
 6. **Secrets**: `.env` is git-ignored. Only `.env.example` (empty placeholders) is
    committed. Never stage `.env`.
 
+7. **Confidence gate** (`healer/engine._prepare` + `config.min_confidence`, default
+   `0.7`): the engine gates on the **effective** confidence = `min(classification,
+   suggestion)`. Below the bar the suggestion is recorded but never applied
+   (status `low_confidence`, report-only) so a human can review with zero file change.
+
+8. **Locator validity + generic penalty** (`ai/ollama_engine.is_valid_locator_expression`,
+   `is_generic_locator`): structurally invalid AI output is rejected before any write;
+   over-broad locators (e.g. `getByRole('button')` with no name) are penalised to
+   report-only so they can't pass validation by coincidence.
+
+9. **Targeted validation** (`config.targeted_command` + `_is_spec_file`): a heal is
+   validated by re-running only the failing spec (`file:line`), not the whole suite.
+   When the failing file isn't a recognisable spec (e.g. a page object) it safely
+   falls back to the full command, so it never hands the runner a non-test path.
+
+10. **Resilience** (`ai/http.py`, `engine.heal_directory`): LLM calls retry with
+    exponential backoff (skipping deterministic 4xx); a single trace's failure is
+    caught and reported, never aborting the rest of the batch.
+
+11. **Classifier strong/weak split** (`healer/classifier.py`): definite
+    element-not-found patterns score `0.95`; transient visibility/state patterns
+    (likely timing flakes, not drift) score `0.55` so the confidence gate holds them
+    as report-only rather than rewriting a good locator.
+
+12. **Idempotency ledger** (`healer/ledger.py`, `.healer-ledger.json` at project root):
+    stops re-attempting a locator signature after `max_heal_attempts` (default 3)
+    failures, preventing repeated identical PRs. Git-ignore this file in target repos.
+
+13. **BDD scenario/step capture** (`healer/detector._extract_bdd_context`): recovers the
+    Gherkin **feature + scenario** from the trace `context-options.title`
+    (`spec:line › Feature › Scenario`) and the failing **step** from the nearest
+    `test.step` ancestor of the errored action. Surfaced via `telemetry._summarize`
+    and rendered on the dashboard (keyword badge + before→after locator).
+
+14. **Report redaction** (`engine._serialize` + `config.save_dom_in_reports`): persisted
+    reports drop the DOM chunk and cap `error_message` by default to avoid leaking page
+    data; `git_pr._clean` flattens LLM `reasoning`/locators before they enter commits/PRs.
+
 ## Suggested next steps (open ideas)
 
-- **CI integration**: add a GitHub Actions job that runs Playwright with traces, then
-  `auto-healer heal test-results --auto-pr` on failure.
-- **Confidence gating**: skip patching (or require review) when AI confidence < threshold.
-- **Multi-locator-per-test**: current dedup keys on the first failed locator; extend to
-  heal multiple distinct locators in one run.
-- **Provider hardening**: retries/backoff for Azure/Ollama/Kilo HTTP calls.
-- **Report UI**: render `/reports` JSON in the FastAPI dashboard instead of raw JSON.
+- **CI integration**: wire `ci/github-actions-nightly.yml` to run Playwright with traces,
+  then `auto-healer heal test-results --auto-pr` on failure.
+- **Per-test re-run for page objects**: targeted validation currently falls back to a
+  full run when the failing frame is a page object; map POM → owning spec to narrow it.
+- **Provider expansion**: add OpenAI/Anthropic/Gemini engines (factory already pluggable).
+- **Dashboard filters**: filter the run/event list by status (healed/report-only/failed)
+  and by feature.
 - **Packaging**: optionally publish to an internal index so `pip install ai-auto-healer`
   works without `-e .`.
 
