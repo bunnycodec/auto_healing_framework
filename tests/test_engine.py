@@ -90,6 +90,45 @@ def test_batch_validate_runs_once_for_many_locators(tmp_path: Path) -> None:
     assert "/Submit/i" in contact.read_text(encoding="utf-8")
 
 
+def test_batch_validate_labels_duplicates_as_duplicate(tmp_path: Path) -> None:
+    """In batch mode, repeats of a healed locator are `duplicate`, not `failed`.
+
+    Regression: dedup runs before batch validation, so the representative is
+    still pending when duplicates are detected; their label must be resolved
+    from the representative's FINAL status.
+    """
+    settings = make_settings(tmp_path)
+    make_broken_trace(tmp_path, folder="trace-a")
+    make_broken_trace(tmp_path, folder="trace-b")  # same locator
+    make_broken_trace(tmp_path, folder="trace-c")  # same locator
+
+    engine = HealingEngine(app_settings=settings, ai_engine=RuleEngine(), batch_validate=True)
+    engine.rerunner = _CountingRerunner(passed=True)
+
+    reports = engine.heal_directory(tmp_path / "test-results")
+
+    assert len([r for r in reports if r.status == "healed"]) == 1
+    assert len([r for r in reports if r.status == "duplicate"]) == 2
+    assert not [r for r in reports if r.status == "failed"]
+
+
+def test_batch_validate_marks_duplicates_failed_when_unhealed(tmp_path: Path) -> None:
+    """If the batch re-run fails, the representative restores and its repeats
+    are labelled `failed` (the locator was not fixed), never `duplicate`."""
+    settings = make_settings(tmp_path)
+    make_broken_trace(tmp_path, folder="trace-a")
+    make_broken_trace(tmp_path, folder="trace-b")  # same locator
+
+    engine = HealingEngine(app_settings=settings, ai_engine=RuleEngine(), batch_validate=True)
+    engine.rerunner = _CountingRerunner(passed=False)
+
+    reports = engine.heal_directory(tmp_path / "test-results")
+
+    assert not [r for r in reports if r.status == "duplicate"]
+    assert any(r.status == "restored" for r in reports)
+    assert any(r.status == "failed" for r in reports)
+
+
 def test_batch_validate_restores_all_on_failure(tmp_path: Path) -> None:
     settings = make_settings(tmp_path)
     make_broken_trace(tmp_path, folder="trace-a")

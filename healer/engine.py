@@ -68,6 +68,7 @@ class HealingEngine:
         seen: dict[str, HealingReport] = {}
         patches: list[CodePatch] = []
         prepared: list[tuple[HealingReport, CodePatch]] = []
+        pending_duplicates: list[tuple[HealingReport, str | None]] = []
 
         # Read every trace's failure context up front. A validation re-run during
         # healing wipes the framework's results dir (Playwright clears
@@ -90,17 +91,20 @@ class HealingEngine:
             )
 
             if signature and signature in seen:
-                rep = seen[signature]
+                # Defer the duplicate's label: in batch mode the representative is
+                # still pending validation here, so we can't yet know whether this
+                # is a `duplicate` (representative healed) or a `failed` (it didn't).
+                # Resolution happens after validation, keyed by signature.
                 duplicate = HealingReport(
                     trace_zip=str(trace_zip),
-                    status="duplicate" if rep.status == "healed" else "failed",
+                    status="duplicate",
                     test_name=failure.test_name,
                     category=FailureCategory.LOCATOR.value,
                     confidence=classification.confidence if classification else 0.0,
                     failure=failure,
-                    messages=[f"Duplicate locator already handled by '{rep.test_name}'"],
                 )
-                reports.append(self._save_report(duplicate))
+                pending_duplicates.append((duplicate, signature))
+                reports.append(duplicate)
                 continue
 
             # Idempotency: stop hammering a locator that has already failed to
@@ -166,6 +170,23 @@ class HealingEngine:
                     else None
                 )
                 self.ledger.record(sig, report.status)
+
+        # Now that every representative has a final status, label each duplicate:
+        # `duplicate` when its representative healed, otherwise `failed`.
+        for duplicate, signature in pending_duplicates:
+            rep = seen.get(signature) if signature else None
+            if rep is not None and rep.status == "healed":
+                duplicate.status = "duplicate"
+                duplicate.messages = [
+                    f"Duplicate of a locator healed via '{rep.test_name}'"
+                ]
+            else:
+                duplicate.status = "failed"
+                duplicate.messages = [
+                    "Same locator as a fix that did not validate"
+                    + (f" (see '{rep.test_name}')" if rep else "")
+                ]
+            self._save_report(duplicate)
 
         if patches and not self.dry_run and (self.auto_commit or self.auto_pr):
             self._commit(patches, reports)
