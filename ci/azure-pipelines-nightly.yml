@@ -1,0 +1,74 @@
+# Azure DevOps: nightly Playwright run with AI auto-healing.
+#
+# Place this file in your TEST repository (e.g. azure-pipelines-nightly.yml) and
+# point a scheduled pipeline at it.
+#
+# Pipeline variables / library secrets to set:
+#   AZURE_OPENAI_API_KEY (secret), AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_DEPLOYMENT
+#   System.AccessToken must be available for the healer to push a branch / PR.
+
+schedules:
+  - cron: "0 2 * * *"          # 02:00 UTC daily
+    displayName: Nightly
+    branches:
+      include: [main]
+    always: true
+
+trigger: none                   # only run on schedule / manual
+
+pool:
+  vmImage: ubuntu-latest
+
+variables:
+  AI_MODE: azure-openai
+
+steps:
+  - task: NodeTool@0
+    inputs:
+      versionSpec: "20.x"
+
+  - script: npm ci
+    displayName: Install deps
+
+  - script: npx playwright install --with-deps
+    displayName: Install browsers
+
+  # --- Run tests, but don't fail the pipeline yet ---
+  - script: npx playwright test --trace on
+    displayName: Run Playwright tests
+    continueOnError: true
+    name: tests
+
+  # --- Heal only if tests failed ---
+  - task: UsePythonVersion@0
+    condition: failed()
+    inputs:
+      versionSpec: "3.12"
+
+  - script: pip install git+https://github.com/bunnycodec/auto_healing_framework.git
+    displayName: Install AI auto-healer
+    condition: failed()
+
+  - script: auto-healer heal test-results --auto-pr
+    displayName: Auto-heal broken locators
+    condition: failed()
+    env:
+      AI_MODE: $(AI_MODE)
+      AZURE_OPENAI_API_KEY: $(AZURE_OPENAI_API_KEY)
+      AZURE_OPENAI_ENDPOINT: $(AZURE_OPENAI_ENDPOINT)
+      AZURE_OPENAI_DEPLOYMENT: $(AZURE_OPENAI_DEPLOYMENT)
+      # Allow git push + PR via the build service identity
+      AZURE_DEVOPS_EXT_PAT: $(System.AccessToken)
+
+  # --- Surface the trace + report artifacts ---
+  - task: PublishPipelineArtifact@1
+    condition: failed()
+    inputs:
+      targetPath: test-results
+      artifact: playwright-traces
+
+  - task: PublishPipelineArtifact@1
+    condition: failed()
+    inputs:
+      targetPath: reports
+      artifact: healing-reports

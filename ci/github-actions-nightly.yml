@@ -1,0 +1,65 @@
+# GitHub Actions: nightly Playwright run with AI auto-healing.
+#
+# Place this file in your TEST repository at:  .github/workflows/nightly-heal.yml
+#
+# Flow:
+#   1. Run the test suite with traces enabled (don't fail the job yet)
+#   2. If tests failed, run the auto-healer against the trace results
+#   3. The healer fixes broken locators, validates, and opens a PR
+#
+# Secrets to configure in the repo (Settings -> Secrets and variables -> Actions):
+#   AZURE_OPENAI_API_KEY, AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_DEPLOYMENT
+
+name: Nightly Tests + Auto-Heal
+
+on:
+  schedule:
+    - cron: "0 2 * * *"     # every day at 02:00 UTC
+  workflow_dispatch: {}       # allow manual runs
+
+permissions:
+  contents: write             # needed for the healer to push a branch
+  pull-requests: write        # needed to open the PR
+
+jobs:
+  test-and-heal:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # --- Run your existing Playwright suite ---
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm ci
+      - run: npx playwright install --with-deps
+
+      - name: Run Playwright tests (traces on)
+        id: tests
+        run: npx playwright test --trace on
+        continue-on-error: true        # capture failure, heal in the next step
+
+      # --- Heal only if the tests failed ---
+      - name: Install AI auto-healer
+        if: steps.tests.outcome == 'failure'
+        run: pip install git+https://github.com/bunnycodec/auto_healing_framework.git
+
+      - name: Auto-heal broken locators
+        if: steps.tests.outcome == 'failure'
+        env:
+          AI_MODE: azure-openai
+          AZURE_OPENAI_API_KEY: ${{ secrets.AZURE_OPENAI_API_KEY }}
+          AZURE_OPENAI_ENDPOINT: ${{ secrets.AZURE_OPENAI_ENDPOINT }}
+          AZURE_OPENAI_DEPLOYMENT: ${{ secrets.AZURE_OPENAI_DEPLOYMENT }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}    # for the PR
+        run: |
+          # Heal the results folder and open a PR with the fixes
+          auto-healer heal test-results --auto-pr
+
+      # --- Fail the job if tests failed and nothing was healed ---
+      - name: Re-assert test result
+        if: steps.tests.outcome == 'failure'
+        run: |
+          echo "Tests failed; auto-healer ran. Review the opened PR."
+          # Optional: keep the job red so it stays visible until the PR merges
+          exit 1

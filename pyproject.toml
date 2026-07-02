@@ -1,0 +1,43 @@
+[project]
+name = "ai-auto-healer"
+version = "1.1.0"
+description = "AI-powered self-healing for Playwright test suites: detect broken locators, fix them with an LLM, validate, and report."
+requires-python = ">=3.10"
+# Core install stays lean so CI runners only pull what the heal CLI needs.
+dependencies = [
+    "beautifulsoup4>=4.12.3",
+    "python-dotenv>=1.0.1",
+    "pyyaml>=6.0",
+    "requests>=2.32.3",
+]
+
+[project.optional-dependencies]
+# Live telemetry dashboard + REST API. Not needed to run `auto-healer` in CI.
+dashboard = [
+    "fastapi>=0.111.0",
+    "uvicorn[standard]>=0.30.1",
+]
+# Tooling for local development and tests (TestClient needs httpx).
+dev = [
+    "pytest>=8.2.0",
+    "httpx>=0.27.0",
+    "ai-auto-healer[dashboard]",
+]
+
+[project.scripts]
+auto-healer = "healer.cli:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["ai", "app", "app.routes", "healer"]
+py-modules = ["config"]
+
+[tool.setuptools.package-data]
+app = ["templates/*.html"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

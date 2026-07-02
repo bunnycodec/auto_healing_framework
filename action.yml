@@ -1,0 +1,85 @@
+name: AI Auto-Healer
+description: >-
+  Detect broken test locators from failure artifacts, fix them with an LLM,
+  validate by re-running, and open a pull request with the fix.
+author: ai-auto-healer
+branding:
+  icon: activity
+  color: green
+
+inputs:
+  results-dir:
+    description: Directory containing the test failure artifacts (e.g. Playwright traces).
+    required: false
+    default: test-results
+  mode:
+    description: AI provider — rule | azure-openai | ollama | kilo.
+    required: false
+    default: azure-openai
+  test-command:
+    description: >-
+      Command the healer re-runs to validate a fix. Defaults to the project's
+      healer.yml / built-in default when empty.
+    required: false
+    default: ''
+  auto-pr:
+    description: Open a pull request with the fix (true) or just commit a branch (false).
+    required: false
+    default: 'true'
+  dry-run:
+    description: Preview changes without writing or pushing anything.
+    required: false
+    default: 'false'
+  version:
+    description: >-
+      Version of ai-auto-healer to install from PyPI (e.g. 1.1.0). Defaults to
+      the latest published release.
+    required: false
+    default: ''
+  python-version:
+    description: Python version used to run the healer.
+    required: false
+    default: '3.12'
+  github-token:
+    description: Token used to push the branch and open the PR (needs contents + pull-requests write).
+    required: false
+    default: ${{ github.token }}
+
+runs:
+  using: composite
+  steps:
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ inputs.python-version }}
+
+    - name: Install ai-auto-healer
+      shell: bash
+      run: |
+        python -m pip install --upgrade pip
+        if [ -n "${{ inputs.version }}" ]; then
+          pip install "ai-auto-healer==${{ inputs.version }}"
+        else
+          pip install "ai-auto-healer"
+        fi
+
+    - name: Run auto-healer
+      shell: bash
+      env:
+        AI_MODE: ${{ inputs.mode }}
+        TEST_COMMAND: ${{ inputs.test-command }}
+        GH_TOKEN: ${{ inputs.github-token }}
+      run: |
+        git config user.name "github-actions[bot]"
+        git config user.email "github-actions[bot]@users.noreply.github.com"
+
+        FLAGS=""
+        if [ "${{ inputs.dry-run }}" = "true" ]; then
+          FLAGS="--dry-run"
+        elif [ "${{ inputs.auto-pr }}" = "true" ]; then
+          FLAGS="--auto-pr"
+        else
+          FLAGS="--auto-commit"
+        fi
+
+        auto-healer heal "${{ inputs.results-dir }}" $FLAGS
